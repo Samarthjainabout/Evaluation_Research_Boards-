@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
-from cell_api import CommandRunner, RailVoltages, ScanDebugCellAPI, ScanDebugConfig
+from cell_api import FPGA_RUNTIME_BITSTREAM, CommandRunner, RailVoltages, ScanDebugCellAPI, ScanDebugConfig
 
 
 class CommandRunnerPasswordSshTests(unittest.TestCase):
@@ -76,6 +76,108 @@ class ReadRailDefaultTests(unittest.TestCase):
         config = ScanDebugConfig()
 
         self.assertEqual(config.read_rails, RailVoltages(0.5, 2.5))
+        self.assertTrue(config.fpga_dac_enabled)
+        self.assertTrue(config.persistent_fpga_runtime)
+        self.assertFalse(config.capture_program_pulses)
+        self.assertFalse(config.enable_adc_monitor)
+        self.assertFalse(config.dac_teensy_reflash_enabled)
+
+    def test_half_volt_read_uses_updated_state_thresholds(self) -> None:
+        config = ScanDebugConfig()
+
+        self.assertEqual(config.set_sweep.threshold_uA, 70.0)
+        self.assertEqual(config.set_sweep.direction, "above")
+        self.assertEqual(config.reset_sweep.threshold_uA, 5.0)
+        self.assertEqual(config.reset_sweep.direction, "below")
+
+    def test_state_threshold_boundaries_are_strict(self) -> None:
+        self.assertFalse(ScanDebugCellAPI._passes(70.0, 70.0, "above"))
+        self.assertTrue(ScanDebugCellAPI._passes(70.001, 70.0, "above"))
+        self.assertFalse(ScanDebugCellAPI._passes(5.0, 5.0, "below"))
+        self.assertTrue(ScanDebugCellAPI._passes(4.999, 5.0, "below"))
+
+
+class SaleaeRecoveryTests(unittest.TestCase):
+    def test_capture_read_timeout_triggers_usb_recovery(self) -> None:
+        api = ScanDebugCellAPI(ScanDebugConfig(dry_run=True))
+
+        self.assertTrue(
+            api._usb_needs_recovery(
+                "saleae.automation.errors.DeviceError: "
+                "Error interacting with device during capture: ReadTimeout."
+            )
+        )
+
+
+class FpgaDacBitstreamTests(unittest.TestCase):
+    def test_single_cell_bitstream_carries_rail_parameters(self) -> None:
+        api = ScanDebugCellAPI(ScanDebugConfig(dry_run=True))
+        rails = RailVoltages(0.5, 2.5)
+        tcl = api._build_tcl(api._array_sweep_cells(18, 0)[0], 0, rails, "test.bit")
+
+        self.assertIn('add_files [file join $script_dir "dac81416_spi.v"]', tcl)
+        self.assertIn("DAC_VCC_SET_MV=500", tcl)
+        self.assertIn("DAC_VCC_WL_SET_MV=2500", tcl)
+        self.assertEqual(rails.bitstream_tag, "vcc0500_wl2500")
+
+    def test_dry_run_uses_one_runtime_bitstream(self) -> None:
+        api = ScanDebugCellAPI(ScanDebugConfig(dry_run=True))
+        cell = api._array_sweep_cells(18, 0)[0]
+
+        name = api._ensure_bitstream(cell, 0, RailVoltages(0.5, 2.5))
+
+        self.assertEqual(name, "caravel_scan_debug_runtime_dac81416_v2.bit")
+        self.assertEqual(api._ensure_bitstream(cell, 1, RailVoltages(3.0, 2.0)), name)
+        self.assertEqual(api._ensure_array_bitstream(0, 31), name)
+
+    def test_runtime_payload_contains_cell_operation_count_and_dac_codes(self) -> None:
+        api = ScanDebugCellAPI(ScanDebugConfig(dry_run=True))
+        packet = 0x8000 | (18 << 10) | (7 << 5) | 18
+
+        payload = int(api._runtime_command_payload(packet, RailVoltages(0.5, 2.5), 32), 16)
+
+        self.assertEqual((payload >> 63) & 1, 1)
+        self.assertEqual((payload >> 62) & 1, 1)
+        self.assertEqual((payload >> 57) & 0x1F, 18)
+        self.assertEqual((payload >> 52) & 0x1F, 7)
+        self.assertEqual((payload >> 41) & 0x7FF, 32)
+        self.assertEqual((payload >> 25) & 0xFFFF, round(0.5 * 65535 / 10.0))
+        self.assertEqual((payload >> 9) & 0xFFFF, round(2.5 * 65535 / 5.0))
+
+    def test_runtime_programming_uses_universal_bitstream_and_vio_payload(self) -> None:
+        api = ScanDebugCellAPI(ScanDebugConfig(dry_run=False, persistent_fpga_runtime=False))
+        api._run_zynq_powershell = Mock(  # type: ignore[method-assign]
+            return_value=subprocess.CompletedProcess([], 0, "VIVADO_EXIT=0\n", "")
+        )
+        packet = 0x8000 | (18 << 10) | 18
+
+        rc = api._program_fpga(
+            "caravel_scan_debug_runtime_dac81416_v2.bit",
+            packet=packet,
+            rails=RailVoltages(2.5, 1.2),
+            packet_count=1,
+        )
+
+        self.assertEqual(rc, 0)
+        command = api._run_zynq_powershell.call_args.args[0]
+        self.assertIn("program_and_run_runtime.tcl", command)
+        self.assertIn("caravel_scan_debug_runtime_dac81416_v2.bit", command)
+        self.assertIn("caravel_scan_debug_runtime_dac81416_v2.ltx", command)
+        self.assertIn(api._runtime_command_payload(packet, RailVoltages(2.5, 1.2), 1), command)
+
+    def test_fast_program_pulse_uses_runtime_ack_without_saleae_capture(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            api = ScanDebugCellAPI(ScanDebugConfig(run_dir=Path(temp_dir), dry_run=False))
+            api._ensure_bitstream = Mock(return_value=FPGA_RUNTIME_BITSTREAM)  # type: ignore[method-assign]
+            api._ensure_runtime_vio_daemon = Mock()  # type: ignore[method-assign]
+            api._program_fpga = Mock(return_value=0)  # type: ignore[method-assign]
+
+            result = api._program_pulse(api._array_sweep_cells(18, 0)[0], "set", RailVoltages(2.5, 1.2), "set_pulse")
+
+            self.assertTrue(result.ok)
+            self.assertIsNone(result.current_uA)
+            self.assertEqual(result.local_output_dir, "FPGA_RUNTIME_ACK_NO_CAPTURE")
+            api._program_fpga.assert_called_once()
 
 
 class SaleaeScriptUploadTests(unittest.TestCase):
@@ -130,6 +232,36 @@ class HardwareQueueTests(unittest.TestCase):
 
             self.assertEqual(api.runner.ssh.call_count, 2)
             self.assertIn("/token", api.runner.ssh.call_args_list[1].args[1])
+
+    def test_owner_lookup_timeout_is_nonfatal(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            api = ScanDebugCellAPI(ScanDebugConfig(run_dir=Path(temp_dir), dry_run=False))
+            api.runner = Mock()
+            api.runner.ssh.side_effect = subprocess.TimeoutExpired(["ssh"], 10)
+
+            self.assertEqual(api._hardware_queue_owner("user@example.test"), "")
+
+
+class DacTeensyRecoveryTests(unittest.TestCase):
+    def test_missing_configured_serial_port_triggers_reflash(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            api = ScanDebugCellAPI(ScanDebugConfig(run_dir=Path(temp_dir), dry_run=False))
+            output = (
+                "serial.serialutil.SerialException: [Errno 2] could not open port "
+                f"{api.config.adc_dac_port}: [Errno 2] No such file or directory"
+            )
+
+            self.assertTrue(api._dac_teensy_needs_reflash(output))
+
+    def test_unrelated_missing_port_does_not_trigger_dac_reflash(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            api = ScanDebugCellAPI(ScanDebugConfig(run_dir=Path(temp_dir), dry_run=False))
+
+            self.assertFalse(
+                api._dac_teensy_needs_reflash(
+                    "SerialException: could not open port /dev/ttyACM99: No such file or directory"
+                )
+            )
 
 
 if __name__ == "__main__":

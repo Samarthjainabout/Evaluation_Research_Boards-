@@ -8,7 +8,8 @@ All source files needed to set up the FPGA, DAC/ADC Teensy, Saleae capture host,
 
 The API keeps the experiment behavior used in the recent stair-pulse runs:
 
-- every packet programs the FPGA bitstream for the selected cell and mode;
+- one universal FPGA bitstream accepts the operation, cell, burst length, and
+  DAC rail values at runtime through Vivado VIO/JTAG;
 - FPGA asserts Caravel reset before sending the packet;
 - read verification uses `Vcc_set=0.5 V`, `Vcc_wl_set=2.5 V` by default;
 - set uses `OP_SET=1` and ramps rails until read current crosses the set threshold;
@@ -59,8 +60,8 @@ Current lab roles:
 |---|---|---|
 | API runner | your local PC or remote PC | starts read/set/reset commands |
 | Zynq/Vivado PC | `geethika@100.116.216.70` | builds/programs AX7020/Zynq FPGA over JTAG |
-| Saleae/Teensy Ubuntu PC | `ubuntu-24-04@100.98.132.51` | runs Logic 2 automation and talks to DAC/ADC Teensy |
-| Hardware bench | physically connected in lab | Caravel, FPGA, Saleae, DAC/ADC Teensy, shunts |
+| Saleae Ubuntu PC | `ubuntu-24-04@100.98.132.51` | runs Logic 2 automation |
+| Hardware bench | physically connected in lab | Caravel, FPGA, FPGA-controlled DAC81416, Saleae, shunts |
 
 If the API is run from a new PC outside the lab, that PC must first join the same private network as the two control hosts. The current IPs are private Tailscale-style addresses, so they will not work from the public internet unless the PC is on that same VPN/private network.
 
@@ -71,9 +72,9 @@ The API also supports a user-owned bench. In that case the user does not need th
 | Job | Requirement |
 |---|---|
 | FPGA programming | PC with Vivado and JTAG access to the AX7020/Zynq board |
-| Capture and rails | PC with Saleae Logic 2 automation running, DAC/ADC Teensy connected, and the Saleae helper script installed |
+| Capture | PC with Saleae Logic 2 automation and the Saleae helper script installed |
 
-The Caravel board, FPGA, Saleae, shunts, and DAC/ADC Teensy must be physically wired as described in [Voltage and Probe Connections](#voltage-and-probe-connections). The API cannot discover or compensate for different wiring automatically.
+The Caravel board, FPGA, DAC81416, Saleae, and shunts must be physically wired as described in [Voltage and Probe Connections](#voltage-and-probe-connections). The API cannot discover or compensate for different wiring automatically.
 
 Supported user-owned topologies:
 
@@ -257,7 +258,8 @@ The CLI reads these environment variables when matching command-line flags are n
 | `SCAN_DEBUG_DISABLE_SALEAE_USB_RECOVERY` | `--disable-saleae-usb-recovery` | `0` |
 | `SCAN_DEBUG_SALEAE_USB_CONTROLLER_PCI` | `--saleae-usb-controller-pci` | `0000:00:0c.0` |
 | `SCAN_DEBUG_SALEAE_SUDO_PASSWORD` | `--saleae-sudo-password` | empty |
-| `SCAN_DEBUG_ADC_DAC_PORT` | `--adc-dac-port` | `/dev/serial/by-id/usb-Teensyduino_USB_Serial_8829000-if00` |
+| `SCAN_DEBUG_LEGACY_TEENSY_DAC` | `--legacy-teensy-dac` | `0` (FPGA controls DAC81416) |
+| `SCAN_DEBUG_ADC_DAC_PORT` | `--adc-dac-port` | legacy Teensy only |
 | `SCAN_DEBUG_DISABLE_DAC_TEENSY_REFLASH` | `--disable-dac-teensy-reflash` | `0` |
 | `SCAN_DEBUG_DAC_TEENSY_APP_SERIAL` | `--dac-teensy-app-serial` | `8829000` |
 | `SCAN_DEBUG_DAC_TEENSY_BOOTLOADER_SERIAL` | `--dac-teensy-bootloader-serial` | `000D78D4` |
@@ -375,7 +377,7 @@ Hardware-backed set sweep:
 python api_v1/scan_debug_cli.py set --row 5 --col 0 \
   --set-vcc-set 1.6,2.0,2.3,2.4,2.5,2.8 \
   --set-vcc-wl-set 0.5,0.6,0.7,0.8,0.9,1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0 \
-  --set-threshold 200.0
+  --set-threshold 70.0
 ```
 
 Hardware-backed reset sweep:
@@ -384,7 +386,7 @@ Hardware-backed reset sweep:
 python api_v1/scan_debug_cli.py reset --row 5 --col 0 \
   --reset-vcc-set 3.3,3.4,3.5,3.6,3.7 \
   --reset-vcc-wl-set 1.0,1.2,1.4,1.6,1.8,2.0,2.2,2.3 \
-  --reset-threshold 130.0
+  --reset-threshold 5.0
 ```
 
 Default 32 by 32 array read:
@@ -393,7 +395,12 @@ Default 32 by 32 array read:
 python api_v1/scan_debug_cli.py read-array
 ```
 
-This uses column-by-column burst mode by default. For each column, the API programs one FPGA sequence bitstream, the FPGA sends all row packets for that column with a Caravel reset before every packet, and the Saleae helper captures one continuous trace for the whole column. The helper then decodes all packet/current windows into the normal `manifest.csv`, so the GUI heatmap updates after each column.
+This uses column-by-column burst mode by default. For each column, the API writes
+one runtime command into the already-built FPGA image, the FPGA sends all row
+packets for that column with a Caravel reset before every packet, and the Saleae
+helper captures one continuous trace. The helper decodes all packet/current
+windows into the normal `manifest.csv`, so the GUI heatmap updates after each
+column.
 
 One-shot full-array burst is still available from the CLI:
 
@@ -401,11 +408,14 @@ One-shot full-array burst is still available from the CLI:
 python api_v1/scan_debug_cli.py read-array --array-mode burst
 ```
 
-Prebuild and cache all column-burst FPGA bitstreams into the tracked bitstream folder:
+Build or refresh the one universal runtime bitstream and its VIO probes file:
 
 ```bash
-python api_v1/scan_debug_cli.py build-array-bitstreams
+python api_v1/scan_debug_cli.py build-runtime-bitstream --force-bitstreams
 ```
+
+`build-array-bitstreams` remains as a compatibility alias and now produces the
+same single runtime image rather than 32 column-specific images.
 
 Old per-cell behavior is still available:
 
@@ -436,11 +446,12 @@ The API itself is pure Python and runs on macOS, Ubuntu, or Windows. Hardware ac
 
 FPGA files copied into this API folder:
 
-- [prerequisites/fpga_zynq7020/caravel_scan_debug_fpga.v](./prerequisites/fpga_zynq7020/caravel_scan_debug_fpga.v)
+- [prerequisites/fpga_zynq7020/caravel_scan_debug_runtime.v](./prerequisites/fpga_zynq7020/caravel_scan_debug_runtime.v)
+- [prerequisites/fpga_zynq7020/dac81416_runtime_spi.v](./prerequisites/fpga_zynq7020/dac81416_runtime_spi.v)
 - [prerequisites/fpga_zynq7020/caravel_scan_debug_fpga.xdc](./prerequisites/fpga_zynq7020/caravel_scan_debug_fpga.xdc)
-- [prerequisites/fpga_zynq7020/program_scan_debug_zynq7020.tcl](./prerequisites/fpga_zynq7020/program_scan_debug_zynq7020.tcl)
-- [prerequisites/fpga_zynq7020/program_prebuilt_bitstream.tcl](./prerequisites/fpga_zynq7020/program_prebuilt_bitstream.tcl)
-- [prerequisites/fpga_zynq7020/bitstreams](./prerequisites/fpga_zynq7020/bitstreams) contains backed-up `.bit` files for reboot recovery.
+- [prerequisites/fpga_zynq7020/build_runtime_bitstream.tcl](./prerequisites/fpga_zynq7020/build_runtime_bitstream.tcl)
+- [prerequisites/fpga_zynq7020/program_and_run_runtime.tcl](./prerequisites/fpga_zynq7020/program_and_run_runtime.tcl)
+- [prerequisites/fpga_zynq7020/bitstreams](./prerequisites/fpga_zynq7020/bitstreams) contains the universal `.bit` and matching `.ltx` VIO probes file.
 
 Teensy DAC/ADC firmware copied into this API folder:
 
@@ -472,12 +483,18 @@ Local summarizer used by the API:
    Required files in that directory:
 
    ```text
-   caravel_scan_debug_fpga.v
+   caravel_scan_debug_runtime.v
+   dac81416_runtime_spi.v
    caravel_scan_debug_fpga.xdc
-   program_scan_debug_zynq7020.tcl
+   build_runtime_bitstream.tcl
+   program_and_run_runtime.tcl
+   caravel_scan_debug_runtime_dac81416_v2.bit
+   caravel_scan_debug_runtime_dac81416_v2.ltx
    ```
 
-   The API generates per-packet Vivado build TCL files and bitstreams in this same directory.
+   The API automatically uploads these files. Read, set, reset, cycle, serial
+   array read, column burst, and full-array burst all use the same runtime image;
+   normal operations do not run synthesis or implementation.
 
 2. Flash the DAC/ADC Teensy with:
 
@@ -513,32 +530,27 @@ Local summarizer used by the API:
    127.0.0.1:10430
    ```
 
-5. Confirm the DAC/ADC Teensy serial path.
+5. Wire the DAC81416 SPI interface to the FPGA as described below. The default
+   API path does not require a DAC Teensy or a Teensy serial device.
 
-   Default API path:
+   To use the old Teensy wiring temporarily, pass:
 
-   ```text
-   /dev/serial/by-id/usb-Teensyduino_USB_Serial_8829000-if00
-   ```
-
-   Override with:
-
-   ```bash
-   --adc-dac-port /dev/serial/by-id/...
+   ```powershell
+   --legacy-teensy-dac --adc-dac-port /dev/serial/by-id/...
    ```
 
 ## Voltage and Probe Connections
 
-Rails controlled by the DAC/ADC Teensy firmware:
+Rails controlled directly by the FPGA-connected DAC81416:
 
 | Rail | Caravel/Chip node | DAC channel in current firmware | API default / behavior |
 |---|---:|---:|---|
-| `Vcc_read` | GPIO33 | DAC[0] | held `0 V` in `SCAN_CUSTOM_RAILS` |
-| `Vcc_wl_read` | GPIO26 | DAC[1] | held `0 V` in `SCAN_CUSTOM_RAILS` |
+| `Vcc_read` | GPIO33 | DAC[0] | held `0 V` |
+| `Vcc_wl_read` | GPIO26 | DAC[1] | held `0 V` |
 | `Vcc_set` | GPIO27 | DAC[6] | ramped by API |
 | `Vcc_wl_set` | GPIO30 | DAC[3] | ramped by API |
-| `Vcc_wl_reset` | GPIO28 | DAC[4] | held `0 V` in `SCAN_CUSTOM_RAILS` |
-| `Vcc_reset` | VDDA2 | DAC[5] | held `0 V` in `SCAN_CUSTOM_RAILS` |
+| `Vcc_wl_reset` | GPIO28 | DAC[4] | held `0 V` |
+| `Vcc_reset` | VDDA2 | DAC[5] | held `0 V` |
 | `VDDA1` | VDDA1 | DAC[14] / external supply as configured | not changed by API |
 | `VDDC2` | VCCD2 | DAC[15] | not changed by API |
 
@@ -548,9 +560,30 @@ Current probes:
 |---|---:|---:|
 | Set shunt current | A12 - A13 | default `470 ohms` |
 | Reset shunt current | A14 - A15 | default `470 ohms` |
-| ADC set monitor | A0 - A1 | firmware monitor |
-| ADC read monitor | A2 - A3 | firmware monitor |
-| ADC reset monitor | A4 - A5 | firmware monitor |
+
+The default path uses the Saleae shunt measurements and does not require the
+Teensy ADS1258 monitor.
+
+FPGA to DAC81416 wiring:
+
+| DAC signal | FPGA J10 pin | Zynq pin | Notes |
+|---|---:|---|---|
+| `SCLK` | 28 | V12 | 5 MHz SPI clock generated by FPGA |
+| `SDI` | 29 | U12 | 24-bit register/data frames |
+| `CS/SYNC` | 30 | T12 | active low; replaces proposed J10-7 because J10-7 is in use |
+| `LDAC` | 31 | T10 | held high; outputs update asynchronously |
+| `VIO` | 39 | — | 3.3 V logic supply |
+| `GND` | 1 | — | common FPGA/DAC ground |
+
+J10-7/Y17 remains connected to Caravel `ScanInDL`; do not connect DAC CS to
+J10-7. The FPGA programs the DAC before releasing Caravel reset. The API sends
+the requested cell, operation, packet count, `Vcc_set`, and `Vcc_wl_set` through
+the runtime VIO command before each capture; voltage changes do not require a
+new bitstream.
+
+Keep the DAC81416 `RESET` and `CLR` inputs high at 3.3 V VIO and connect unused
+`TOGGLE0..2` inputs to ground, as required by the DAC interface. Power off the
+FPGA and DAC before moving these wires.
 
 FPGA to Caravel and Saleae digital probes:
 

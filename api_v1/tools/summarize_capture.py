@@ -153,6 +153,7 @@ def latest_adc(adc_csv: Path):
 
 
 def append_row(manifest: Path, row: dict):
+    write_header = not manifest.exists() or manifest.stat().st_size == 0
     with manifest.open("a", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=[
             "index", "phase", "vcc_set_V", "vcc_wl_set_V", "packet", "bits_lsb_first",
@@ -160,6 +161,8 @@ def append_row(manifest: Path, row: dict):
             "la_set_window_mean_uA", "la_reset_window_mean_uA",
             "adc_read_uA", "adc_set_uA", "adc_reset_uA", "error",
         ])
+        if write_header:
+            writer.writeheader()
         writer.writerow(row)
 
 
@@ -173,6 +176,7 @@ def main() -> int:
     parser.add_argument("--vcc-wl-set-v", required=True, type=float)
     parser.add_argument("--remote-output-dir", required=True)
     parser.add_argument("--local-output-dir", required=True)
+    parser.add_argument("--recorded-local-output-dir")
     parser.add_argument("--manifest", required=True, type=Path)
     args = parser.parse_args()
 
@@ -207,7 +211,7 @@ def main() -> int:
         "packet": args.packet,
         "bits_lsb_first": args.bits,
         "remote_output_dir": args.remote_output_dir,
-        "local_output_dir": str(local_dir),
+        "local_output_dir": args.recorded_local_output_dir or str(local_dir),
         "ok": ok,
         "decoded_packet": decoded["decoded_packet_hex"],
         "la_set_window_mean_uA": set_mean_uA,

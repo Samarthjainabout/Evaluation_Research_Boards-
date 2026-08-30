@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import csv
 import hashlib
+import io
 import json
 import math
 import os
@@ -25,6 +26,8 @@ from typing import Iterator, Iterable, Literal
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SUMMARIZER = ROOT / "api_v1/tools/summarize_capture.py"
 FPGA_BITSTREAM_DIR = ROOT / "api_v1/prerequisites/fpga_zynq7020/bitstreams"
+FPGA_RUNTIME_BITSTREAM = "caravel_scan_debug_runtime_dac81416_v2.bit"
+FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_v2.ltx"
 MANIFEST_FIELDS = [
     "index",
     "stage",
@@ -78,6 +81,10 @@ class RailVoltages:
     @property
     def command(self) -> str:
         return f"SCAN_CUSTOM_RAILS {round(self.vcc_set_v * 1000):.0f} {round(self.vcc_wl_set_v * 1000):.0f}"
+
+    @property
+    def bitstream_tag(self) -> str:
+        return f"vcc{round(self.vcc_set_v * 1000):04d}_wl{round(self.vcc_wl_set_v * 1000):04d}"
 
 
 @dataclass(frozen=True)
@@ -134,7 +141,7 @@ class ScanDebugConfig:
                 1.9,
                 2.0,
             ),
-            threshold_uA=200.0,
+            threshold_uA=70.0,
             direction="above",
         )
     )
@@ -142,7 +149,7 @@ class ScanDebugConfig:
         default_factory=lambda: SweepConfig.from_ranges(
             vcc_set_v=(3.3, 3.4, 3.5, 3.6, 3.7),
             vcc_wl_set_v=(1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.3),
-            threshold_uA=130.0,
+            threshold_uA=5.0,
             direction="below",
         )
     )
@@ -166,7 +173,13 @@ class ScanDebugConfig:
     saleae_usb_controller_pci: str = "0000:00:0c.0"
     saleae_sudo_password: str | None = os.environ.get("SCAN_DEBUG_SALEAE_SUDO_PASSWORD") or None
     adc_dac_port: str = "/dev/serial/by-id/usb-Teensyduino_USB_Serial_8829000-if00"
-    dac_teensy_reflash_enabled: bool = True
+    fpga_dac_enabled: bool = True
+    persistent_fpga_runtime: bool = True
+    capture_program_pulses: bool = False
+    defer_capture_copy: bool = True
+    runtime_daemon_start_timeout_seconds: float = 60.0
+    runtime_command_timeout_seconds: float = 20.0
+    dac_teensy_reflash_enabled: bool = False
     dac_teensy_app_serial: str = "8829000"
     dac_teensy_bootloader_serial: str = "000D78D4"
     dac_teensy_loader: str = "/home/ubuntu-24-04/teensy-tools-src/teensy_loader_cli_serial/teensy_loader_cli"
@@ -188,7 +201,7 @@ class ScanDebugConfig:
     after_trigger_seconds: float = 0.000090
     trim_data_seconds: float = 0.000003
     digital_threshold_volts: float = 1.2
-    enable_adc_monitor: bool = True
+    enable_adc_monitor: bool = False
     burst_initial_delay_cycles: int = 1_000_000
     burst_repeat_after_done_cycles: int = 1
     burst_capture_strategy: Literal["single", "per-cell"] = "single"
@@ -356,11 +369,21 @@ class ScanDebugCellAPI:
         (self.config.run_dir / "raw").mkdir(exist_ok=True)
         self.runner = CommandRunner(self.config.dry_run)
         self.manifest = self.config.run_dir / "manifest.csv"
+        self._runtime_bitstream_ready = False
+        self._runtime_daemon_ready = False
+        self._runtime_daemon_process: subprocess.Popen[str] | None = None
+        self._runtime_daemon_log_handle = None
+        self._pending_capture_copies: list[tuple[threading.Thread, list[BaseException]]] = []
+        self._saleae_capture_script_ready = False
         self._ensure_manifest()
 
     @contextmanager
     def hardware_queue(self, operation: str) -> Iterator[None]:
-        if self.config.dry_run or not self.config.hardware_queue_enabled or operation == "build-array-bitstreams":
+        if (
+            self.config.dry_run
+            or not self.config.hardware_queue_enabled
+            or operation in {"build-runtime-bitstream", "build-array-bitstreams"}
+        ):
             yield
             return
         host = self.config.hardware_queue_host or self.config.saleae_host
@@ -376,7 +399,13 @@ class ScanDebugCellAPI:
         try:
             yield
         finally:
-            self._release_hardware_queue(host, token, operation)
+            try:
+                self._wait_for_pending_capture_copies()
+            finally:
+                try:
+                    self._stop_runtime_vio_daemon()
+                finally:
+                    self._release_hardware_queue(host, token, operation)
 
     def _acquire_hardware_queue(self, host: str, token: str, owner: str, operation: str) -> None:
         deadline = time.time() + max(1.0, self.config.hardware_queue_timeout_seconds)
@@ -422,7 +451,16 @@ class ScanDebugCellAPI:
             self._append_progress(operation, "Hardware queue release failed", queue="release_failed")
 
     def _hardware_queue_owner(self, host: str) -> str:
-        proc = self.runner.ssh(host, f"cat {self._sh_quote(self.config.hardware_queue_dir + '/owner')} 2>/dev/null || true", timeout_s=10)
+        try:
+            proc = self.runner.ssh(
+                host,
+                f"cat {self._sh_quote(self.config.hardware_queue_dir + '/owner')} 2>/dev/null || true",
+                timeout_s=10,
+            )
+        except subprocess.TimeoutExpired:
+            # Owner text is diagnostic only. A slow SSH close must not abort
+            # the operation while it is legitimately waiting for the bench.
+            return ""
         return " ".join(proc.stdout.strip().split())[:180] if proc.returncode == 0 else ""
 
     def _hardware_queue_acquire_command(self, token: str, owner: str) -> str:
@@ -733,7 +771,7 @@ class ScanDebugCellAPI:
                         best = pre_read
                         if target_hit and sweep.stop_on_threshold:
                             break
-                pulse = self._pulse_and_capture(cell, operation, rails, f"{operation}_pulse")
+                pulse = self._program_pulse(cell, operation, rails, f"{operation}_pulse")
                 verify = self._pulse_and_capture(cell, "read", self.config.read_rails, f"read_after_{operation}")
                 entry = {
                     "pre_read": asdict(pre_read) if pre_read else None,
@@ -815,7 +853,10 @@ class ScanDebugCellAPI:
         cell.validate()
         op_set = 1 if operation == "set" else 0
         packet = packet_for_cell(cell, op_set)
-        bitstream = self._ensure_bitstream(cell, op_set)
+        self._ensure_saleae_capture_script()
+        bitstream = self._ensure_bitstream(cell, op_set, rails)
+        if self.config.fpga_dac_enabled and self.config.persistent_fpga_runtime and not self.config.dry_run:
+            self._ensure_runtime_vio_daemon(bitstream)
         index = self._next_index()
         kind = f"r{cell.row:02d}c{cell.col:02d}_{stage}_vcc{rails.vcc_set_v:.3f}_wl{rails.vcc_wl_set_v:.3f}".replace(".", "p")
 
@@ -836,12 +877,30 @@ class ScanDebugCellAPI:
         summary_errors: list[str] = []
         for attempt in range(1, max(1, self.config.attempts) + 1):
             remote_output_dir = self._capture_remote(packet, rails, bitstream, index, kind)
-            local_output_dir = self._copy_capture(remote_output_dir, index, kind, rails)
             try:
-                summary = self._summarize_capture(index, stage, kind, packet, rails, remote_output_dir, local_output_dir)
+                if self.config.defer_capture_copy and self.config.saleae_host:
+                    local_output_dir = self._capture_local_path(remote_output_dir, index, kind, rails)
+                    summary = self._summarize_remote_capture(
+                        index, stage, kind, packet, rails, remote_output_dir, local_output_dir
+                    )
+                    self._schedule_capture_copy(remote_output_dir, index, kind, rails)
+                else:
+                    local_output_dir = self._copy_capture(remote_output_dir, index, kind, rails)
+                    summary = self._summarize_capture(
+                        index, stage, kind, packet, rails, remote_output_dir, local_output_dir
+                    )
                 break
             except RuntimeError as exc:
                 summary_errors.append(f"attempt={attempt}: {exc}")
+                # Preserve the proven synchronous path as the recovery route.
+                try:
+                    local_output_dir = self._copy_capture(remote_output_dir, index, kind, rails)
+                    summary = self._summarize_capture(
+                        index, stage, kind, packet, rails, remote_output_dir, local_output_dir
+                    )
+                    break
+                except RuntimeError as fallback_exc:
+                    summary_errors.append(f"attempt={attempt} synchronous fallback: {fallback_exc}")
                 if attempt >= max(1, self.config.attempts):
                     raise RuntimeError(
                         f"capture summary failed index={index} kind={kind} after {attempt} attempts:\n"
@@ -864,23 +923,74 @@ class ScanDebugCellAPI:
             raise RuntimeError(f"capture decoded incorrectly: expected 0x{packet:04x}, got {result.decoded_packet}: {result.error}")
         return result
 
-    def _ensure_bitstream(self, cell: CellAddress, op_set: int) -> str:
+    def _program_pulse(
+        self,
+        cell: CellAddress,
+        operation: Operation,
+        rails: RailVoltages,
+        stage: str,
+    ) -> CellOperationResult:
+        """Issue a set/reset pulse, capturing it only when explicitly requested.
+
+        The adaptive algorithms make their decision from the following read,
+        not from the programming-pulse waveform.  With the runtime FPGA DAC,
+        waiting for the VIO status acknowledgement is enough to prove that the
+        pulse completed before its captured verification read starts.
+        """
+
+        if operation not in ("set", "reset"):
+            return self._pulse_and_capture(cell, operation, rails, stage)
+        if self.config.capture_program_pulses or not self.config.fpga_dac_enabled:
+            return self._pulse_and_capture(cell, operation, rails, stage)
+
+        cell.validate()
+        packet = packet_for_cell(cell, 1 if operation == "set" else 0)
+        bitstream = self._ensure_bitstream(cell, 1 if operation == "set" else 0, rails)
+        if self.config.persistent_fpga_runtime and not self.config.dry_run:
+            self._ensure_runtime_vio_daemon(bitstream)
+        index = self._next_index()
+        kind = f"r{cell.row:02d}c{cell.col:02d}_{stage}_vcc{rails.vcc_set_v:.3f}_wl{rails.vcc_wl_set_v:.3f}".replace(".", "p")
+        if not self.config.dry_run:
+            rc = self._program_fpga(bitstream, packet=packet, rails=rails, packet_count=1)
+            if rc != 0:
+                raise RuntimeError(f"FPGA runtime pulse failed for {kind} with exit code {rc}")
+        result = CellOperationResult(
+            cell=cell,
+            operation=operation,
+            packet=f"0x{packet:04x}",
+            rails=rails,
+            current_uA=None,
+            decoded_packet=f"0x{packet:04x}",
+            ok=True,
+            local_output_dir="FPGA_RUNTIME_ACK_NO_CAPTURE",
+        )
+        self._append_manifest(index, stage, kind, result, bitstream, bits_lsb(packet))
+        return result
+
+    def _ensure_bitstream(self, cell: CellAddress, op_set: int, rails: RailVoltages) -> str:
+        if self.config.fpga_dac_enabled:
+            return self._ensure_runtime_bitstream()
+
         packet = packet_for_cell(cell, op_set)
         mode = "set" if op_set else "read"
-        bit_name = f"caravel_scan_debug_fpga_{mode}{packet:04x}_fpga_reset_delay_repeat.bit"
+        dac_tag = f"_dac81416_{rails.bitstream_tag}" if self.config.fpga_dac_enabled else ""
+        bit_name = f"caravel_scan_debug_fpga_{mode}{packet:04x}{dac_tag}_fpga_reset_delay_repeat.bit"
         if self.config.dry_run:
             return bit_name
 
         if self._remote_file_exists(bit_name):
             return bit_name
 
-        tcl_name = f"build_scan_debug_{mode}{packet:04x}_fpga_reset_delay_repeat.tcl"
-        tcl = self._build_tcl(cell, op_set, bit_name)
+        self._ensure_remote_fpga_sources()
+        tcl_name = f"build_scan_debug_{mode}{packet:04x}{dac_tag}_fpga_reset_delay_repeat.tcl"
+        tcl = self._build_tcl(cell, op_set, rails, bit_name)
         self._write_remote_text(tcl_name, tcl)
-        self._run_zynq(f"{self.config.vivado_cmd} -mode batch -source {tcl_name}", timeout_s=900)
+        proc = self._run_zynq(f"{self.config.vivado_cmd} -mode batch -source {tcl_name}", timeout_s=900)
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stdout)
         return bit_name
 
-    def _build_tcl(self, cell: CellAddress, op_set: int, bit_name: str) -> str:
+    def _build_tcl(self, cell: CellAddress, op_set: int, rails: RailVoltages, bit_name: str) -> str:
         packet = packet_for_cell(cell, op_set)
         mode = "set" if op_set else "read"
         return f"""set script_dir [file dirname [file normalize [info script]]]
@@ -896,6 +1006,7 @@ if {{[file exists $project_dir]}} {{
 
 create_project $project_name $project_dir -part $part_name -force
 add_files [file join $script_dir "caravel_scan_debug_fpga.v"]
+add_files [file join $script_dir "dac81416_spi.v"]
 set_property top caravel_scan_debug_fpga [current_fileset]
 add_files -fileset constrs_1 $xdc_file
 
@@ -913,6 +1024,8 @@ synth_design -top caravel_scan_debug_fpga -part $part_name -generic [list \\
     POST_RESET_WAIT_CYCLES=1000000 \\
     POST_DR_TM_HOLD_CYCLES=100 \\
     REPEAT_AFTER_DONE_CYCLES=0 \\
+    DAC_VCC_SET_MV={round(rails.vcc_set_v * 1000)} \\
+    DAC_VCC_WL_SET_MV={round(rails.vcc_wl_set_v * 1000)} \\
 ]
 opt_design
 place_design
@@ -923,12 +1036,16 @@ exit
 """
 
     def _ensure_array_bitstream(self, row_start: int, col_start: int) -> str:
+        if self.config.fpga_dac_enabled:
+            return self._ensure_runtime_bitstream()
+
+        dac_tag = f"_dac81416_{self.config.read_rails.bitstream_tag}" if self.config.fpga_dac_enabled else ""
         bit_name = (
             f"caravel_scan_debug_fpga_array_read_r{row_start:02d}c{col_start:02d}"
             f"_init{self.config.burst_initial_delay_cycles}"
             f"_tm{self.config.burst_post_dr_tm_hold_cycles}"
             f"_rst{self.config.burst_fpga_reset_assert_cycles}"
-            f"_gap{self.config.burst_repeat_after_done_cycles}_burst.bit"
+            f"_gap{self.config.burst_repeat_after_done_cycles}{dac_tag}_burst.bit"
         )
         if self.config.dry_run:
             return bit_name
@@ -938,6 +1055,7 @@ exit
         if cached.exists():
             self._write_remote_binary(bit_name, cached.read_bytes())
             return bit_name
+        self._ensure_remote_fpga_sources()
         tcl_name = f"build_scan_debug_array_read_r{row_start:02d}c{col_start:02d}_burst.tcl"
         tcl = self._build_array_tcl(row_start, col_start, bit_name)
         self._write_remote_text(tcl_name, tcl)
@@ -954,6 +1072,18 @@ exit
         *,
         force: bool = False,
     ) -> dict[str, object]:
+        if self.config.fpga_dac_enabled:
+            bitstream = self._ensure_runtime_bitstream(force=force)
+            return {
+                "operation": "build-runtime-bitstream",
+                "row_start": row_start,
+                "col_start": col_start,
+                "col_end": col_end,
+                "built": [bitstream],
+                "cached": [],
+                "bitstream_dir": str(FPGA_BITSTREAM_DIR.relative_to(ROOT)),
+            }
+
         if not 0 <= row_start <= 31:
             raise ValueError(f"row_start must be 0..31, got {row_start}")
         if not 0 <= col_start <= col_end <= 31:
@@ -966,12 +1096,13 @@ exit
             if local_path.exists() and not force:
                 cached.append(local_path.name)
                 continue
+            dac_tag = f"_dac81416_{self.config.read_rails.bitstream_tag}" if self.config.fpga_dac_enabled else ""
             bit_name = (
                 f"caravel_scan_debug_fpga_array_read_r{row_start:02d}c{col:02d}"
                 f"_init{self.config.burst_initial_delay_cycles}"
                 f"_tm{self.config.burst_post_dr_tm_hold_cycles}"
                 f"_rst{self.config.burst_fpga_reset_assert_cycles}"
-                f"_gap{self.config.burst_repeat_after_done_cycles}_burst.bit"
+                f"_gap{self.config.burst_repeat_after_done_cycles}{dac_tag}_burst.bit"
             )
             if self.config.dry_run:
                 built.append(bit_name)
@@ -994,12 +1125,16 @@ exit
         }
 
     def _cached_array_bitstream(self, row_start: int, col_start: int) -> Path:
+        if self.config.fpga_dac_enabled:
+            return FPGA_BITSTREAM_DIR / FPGA_RUNTIME_BITSTREAM
+
+        dac_tag = f"_dac81416_{self.config.read_rails.bitstream_tag}" if self.config.fpga_dac_enabled else ""
         return FPGA_BITSTREAM_DIR / (
             f"caravel_scan_debug_fpga_array_read_r{row_start:02d}c{col_start:02d}"
             f"_init{self.config.burst_initial_delay_cycles}"
             f"_tm{self.config.burst_post_dr_tm_hold_cycles}"
             f"_rst{self.config.burst_fpga_reset_assert_cycles}"
-            f"_gap{self.config.burst_repeat_after_done_cycles}_burst.bit"
+            f"_gap{self.config.burst_repeat_after_done_cycles}{dac_tag}_burst.bit"
         )
 
     @staticmethod
@@ -1028,6 +1163,7 @@ if {{[file exists $project_dir]}} {{
 
 create_project $project_name $project_dir -part $part_name -force
 add_files [file join $script_dir "caravel_scan_debug_fpga.v"]
+add_files [file join $script_dir "dac81416_spi.v"]
 set_property top caravel_scan_debug_fpga [current_fileset]
 add_files -fileset constrs_1 $xdc_file
 
@@ -1042,6 +1178,8 @@ synth_design -top caravel_scan_debug_fpga -part $part_name -generic [list \\
     REPEAT_AFTER_DONE_CYCLES={self.config.burst_repeat_after_done_cycles} \\
     SEQ_START_ROW={row_start} \\
     SEQ_START_COL={col_start} \\
+    DAC_VCC_SET_MV={round(self.config.read_rails.vcc_set_v * 1000)} \\
+    DAC_VCC_WL_SET_MV={round(self.config.read_rails.vcc_wl_set_v * 1000)} \\
 ]
 opt_design
 place_design
@@ -1063,6 +1201,82 @@ exit
         target_path = saleae_dir / target
         if not target_path.exists() or target_path.read_text() != text:
             target_path.write_text(text)
+
+    def _ensure_saleae_capture_script(self) -> None:
+        if self.config.dry_run or self._saleae_capture_script_ready:
+            return
+        script_path = ROOT / "api_v1/prerequisites/saleae_ubuntu/run_fpga_scan0000_la12_15_capture.py"
+        text = script_path.read_text()
+        target = "run_fpga_scan0000_la12_15_capture.py"
+        if self.config.saleae_host:
+            self._write_remote_saleae_text(target, text)
+        else:
+            saleae_dir = Path(self.config.saleae_dir)
+            saleae_dir.mkdir(parents=True, exist_ok=True)
+            target_path = saleae_dir / target
+            if not target_path.exists() or target_path.read_text() != text:
+                target_path.write_text(text)
+        summarizer_path = ROOT / "api_v1/tools/summarize_capture.py"
+        summarizer_text = summarizer_path.read_text()
+        if self.config.saleae_host:
+            self._write_remote_saleae_text("summarize_capture.py", summarizer_text)
+        else:
+            target_path = Path(self.config.saleae_dir) / "summarize_capture.py"
+            if not target_path.exists() or target_path.read_text() != summarizer_text:
+                target_path.write_text(summarizer_text)
+        self._saleae_capture_script_ready = True
+
+    def _ensure_remote_fpga_sources(self) -> None:
+        source_dir = ROOT / "api_v1/prerequisites/fpga_zynq7020"
+        for filename in (
+            "caravel_scan_debug_fpga.v",
+            "dac81416_spi.v",
+            "caravel_scan_debug_runtime.v",
+            "dac81416_runtime_spi.v",
+            "caravel_scan_debug_fpga.xdc",
+            "build_runtime_bitstream.tcl",
+            "program_and_run_runtime.tcl",
+            "runtime_vio_daemon.tcl",
+        ):
+            self._write_remote_binary(filename, (source_dir / filename).read_bytes())
+
+    def _ensure_runtime_bitstream(self, *, force: bool = False) -> str:
+        if self.config.dry_run or (self._runtime_bitstream_ready and not force):
+            return FPGA_RUNTIME_BITSTREAM
+
+        if force:
+            self._stop_runtime_vio_daemon()
+
+        local_bitstream = FPGA_BITSTREAM_DIR / FPGA_RUNTIME_BITSTREAM
+        local_probes = FPGA_BITSTREAM_DIR / FPGA_RUNTIME_PROBES
+        remote_ready = (
+            not force
+            and self._remote_file_exists(FPGA_RUNTIME_BITSTREAM)
+            and self._remote_file_exists(FPGA_RUNTIME_PROBES)
+            and self._remote_file_exists("program_and_run_runtime.tcl")
+            and self._remote_file_exists("runtime_vio_daemon.tcl")
+        )
+        if not remote_ready:
+            self._ensure_remote_fpga_sources()
+            if not force and local_bitstream.exists() and local_probes.exists():
+                self._write_remote_binary(FPGA_RUNTIME_BITSTREAM, local_bitstream.read_bytes())
+                self._write_remote_binary(FPGA_RUNTIME_PROBES, local_probes.read_bytes())
+            else:
+                proc = self._run_zynq(
+                    f"{self.config.vivado_cmd} -mode batch -source build_runtime_bitstream.tcl",
+                    timeout_s=900,
+                )
+                if proc.returncode != 0:
+                    raise RuntimeError(proc.stdout or "Vivado runtime bitstream build failed")
+
+        FPGA_BITSTREAM_DIR.mkdir(parents=True, exist_ok=True)
+        if force or not local_bitstream.exists():
+            local_bitstream.write_bytes(self._read_remote_binary(FPGA_RUNTIME_BITSTREAM))
+        if force or not local_probes.exists():
+            local_probes.write_bytes(self._read_remote_binary(FPGA_RUNTIME_PROBES))
+
+        self._runtime_bitstream_ready = True
+        return FPGA_RUNTIME_BITSTREAM
 
     def _write_remote_saleae_text(self, filename: str, text: str) -> None:
         if not self.config.saleae_host:
@@ -1145,6 +1359,7 @@ exit
             "VCC_SET_V": str(rails.vcc_set_v),
             "VCC_WL_SET_V": str(rails.vcc_wl_set_v),
             "ENABLE_ADC_MONITOR": "1" if self.config.enable_adc_monitor else "0",
+            "SKIP_SET_RAILS": "1" if self.config.fpga_dac_enabled else "0",
             "START_ROW": str(row_start),
             "START_COL": str(col_start),
             "MAX_CELLS": str(max_cells),
@@ -1209,7 +1424,12 @@ exit
             program_rc = -1
             if armed:
                 self._append_progress("read-array", f"Programming FPGA for {burst_label}", mode="burst")
-                program_rc = self._program_fpga(bitstream)
+                program_rc = self._program_fpga(
+                    bitstream,
+                    packet=packet,
+                    rails=rails,
+                    packet_count=max_cells,
+                )
                 self._append_progress("read-array", f"Saleae capturing {burst_label}", mode="burst")
             else:
                 self._append_progress("read-array", f"Saleae did not arm for {burst_label}", mode="burst")
@@ -1470,6 +1690,7 @@ exit
             "DIGITAL_THRESHOLD_VOLTS": str(self.config.digital_threshold_volts),
             "SHUNT_OHMS": str(self.config.shunt_ohms),
             "ENABLE_ADC_MONITOR": "1" if self.config.enable_adc_monitor else "0",
+            "SKIP_SET_RAILS": "1" if self.config.fpga_dac_enabled else "0",
             "SCAN_REQUEST": f"0x{packet:04x}",
             "SCAN_RAIL_COMMAND": rails.command,
             "VCC_SET_V": str(rails.vcc_set_v),
@@ -1486,7 +1707,7 @@ exit
             attempt_log = capture_log if attempts == 1 else self.config.run_dir / f"capture_{index}_{kind}_attempt{attempt}.log"
             capture_proc = self._popen_saleae(capture_cmd)
             time.sleep(2.0)
-            program_rc = self._program_fpga(bitstream)
+            program_rc = self._program_fpga(bitstream, packet=packet, rails=rails, packet_count=1)
             output, _ = capture_proc.communicate()
             attempt_log.write_text(output or "")
             remote_output_dir = ""
@@ -1567,6 +1788,7 @@ exit
             f"No such file or directory: '{self.config.adc_dac_port}'",
             "/dev/serial/by-id",
             "No Saleae device found",
+            "DeviceError: Error interacting with device during capture: ReadTimeout",
             "LIBUSB_ERROR_BUSY",
             "xHCI host controller not responding",
             "HC died; cleaning up",
@@ -1574,11 +1796,17 @@ exit
         return any(marker in output for marker in recovery_markers)
 
     def _dac_teensy_needs_reflash(self, output: str) -> bool:
-        return (
+        write_timeout = (
             "SerialTimeoutException" in output
             and "Write timeout" in output
             and ("set_scan_set_rails" in output or "SCAN_RAIL_COMMAND" in output or "SCAN_CUSTOM_RAILS" in output)
         )
+        missing_configured_port = (
+            self.config.adc_dac_port in output
+            and "No such file or directory" in output
+            and ("SerialException" in output or "could not open port" in output)
+        )
+        return write_timeout or missing_configured_port
 
     def _sudo_prefix(self) -> str:
         if self.config.saleae_sudo_password:
@@ -1704,7 +1932,186 @@ PY
         restart_log.write_text(proc.stdout or "")
         return restart_log
 
-    def _program_fpga(self, bitstream: str) -> int:
+    @staticmethod
+    def _runtime_command_payload(packet: int, rails: RailVoltages, packet_count: int = 1) -> str:
+        op_set = (packet >> 15) & 1
+        cell = cell_from_packet(packet, op_set=op_set)
+        if cell is None:
+            raise ValueError(f"invalid runtime scan packet 0x{packet:04x}")
+        if not 1 <= packet_count <= 1024:
+            raise ValueError(f"runtime packet count must be 1..1024, got {packet_count}")
+        if not 0.0 <= rails.vcc_set_v <= 10.0:
+            raise ValueError(f"Vcc_set must be 0..10 V, got {rails.vcc_set_v}")
+        if not 0.0 <= rails.vcc_wl_set_v <= 5.0:
+            raise ValueError(f"Vcc_wl_set must be 0..5 V, got {rails.vcc_wl_set_v}")
+
+        vcc_set_code = round(rails.vcc_set_v * 65535 / 10.0)
+        vcc_wl_set_code = round(rails.vcc_wl_set_v * 65535 / 5.0)
+        payload = (
+            (1 << 63)
+            | (op_set << 62)
+            | (cell.row << 57)
+            | (cell.col << 52)
+            | (packet_count << 41)
+            | (vcc_set_code << 25)
+            | (vcc_wl_set_code << 9)
+        )
+        return f"0x{payload:016X}"
+
+    def _ensure_runtime_vio_daemon(self, bitstream: str = FPGA_RUNTIME_BITSTREAM) -> None:
+        if self.config.dry_run or not self.config.persistent_fpga_runtime or self._runtime_daemon_ready:
+            return
+        if self.config.zynq_os != "windows":
+            raise RuntimeError("persistent FPGA runtime currently requires the Windows Zynq host")
+        if self.config.zynq_password:
+            raise RuntimeError("persistent FPGA runtime requires SSH key authentication")
+
+        self._ensure_remote_fpga_sources()
+        timeout_s = max(10.0, self.config.runtime_daemon_start_timeout_seconds)
+        timeout_ms = round(timeout_s * 1000)
+        cleanup = (
+            "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'vivado.exe' -and $_.CommandLine -like '*runtime_vio_daemon.tcl*' } | "
+            "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; "
+            "Remove-Item -Force runtime_vio_daemon.heartbeat,runtime_vio_daemon.stop,runtime_vio_request.txt,"
+            "runtime_vio_response.txt -ErrorAction SilentlyContinue"
+        )
+        self._run_zynq_powershell(cleanup, timeout_s=15)
+
+        daemon_command = (
+            f"& '{self.config.vivado_cmd}' -mode batch -source runtime_vio_daemon.tcl "
+            f"-tclargs '{bitstream}' '{FPGA_RUNTIME_PROBES}' *> runtime_vio_daemon.log; "
+            "$rc=$LASTEXITCODE; Write-Output ('RUNTIME_VIO_DAEMON_EXIT='+$rc); exit $rc"
+        )
+        encoded = base64.b64encode(daemon_command.encode("utf-16le")).decode()
+        full_command = f"cd {self.config.zynq_dir} && powershell -NoProfile -EncodedCommand {encoded}"
+        log_path = self.config.run_dir / "runtime_vio_daemon_ssh.log"
+        self._runtime_daemon_log_handle = log_path.open("a")
+        if self.config.zynq_host:
+            self._runtime_daemon_process = subprocess.Popen(
+                ["ssh", "-o", "ConnectTimeout=15", self.config.zynq_host, full_command],
+                text=True,
+                stdout=self._runtime_daemon_log_handle,
+                stderr=subprocess.STDOUT,
+            )
+        else:
+            self._runtime_daemon_process = subprocess.Popen(
+                self._local_shell_command(full_command),
+                text=True,
+                stdout=self._runtime_daemon_log_handle,
+                stderr=subprocess.STDOUT,
+            )
+
+        command = (
+            "$heartbeat='runtime_vio_daemon.heartbeat'; "
+            f"$deadline=(Get-Date).AddMilliseconds({timeout_ms}); $fresh=$false; "
+            "do { Start-Sleep -Milliseconds 100; "
+            "$fresh=(Test-Path $heartbeat) -and (((Get-Date)-(Get-Item $heartbeat).LastWriteTime).TotalSeconds -lt 5) } "
+            "while (-not $fresh -and (Get-Date) -lt $deadline); "
+            "if ($fresh) { Write-Output 'RUNTIME_VIO_DAEMON_READY=1'; exit 0 }; "
+            "Write-Output 'RUNTIME_VIO_DAEMON_READY=0'; "
+            "Get-Content runtime_vio_daemon.log -Tail 40 -ErrorAction SilentlyContinue; exit 1"
+        )
+        proc = self._run_zynq_powershell(command, timeout_s=round(timeout_s + 10))
+        if proc.returncode != 0 or "RUNTIME_VIO_DAEMON_READY=1" not in (proc.stdout or ""):
+            if self._runtime_daemon_process and self._runtime_daemon_process.poll() is None:
+                self._runtime_daemon_process.terminate()
+            if self._runtime_daemon_log_handle:
+                self._runtime_daemon_log_handle.close()
+            raise RuntimeError(proc.stdout or "persistent FPGA runtime daemon did not start")
+        self._runtime_daemon_ready = True
+
+    def _program_fpga_via_runtime_daemon(self, payload: str) -> int:
+        self._ensure_runtime_vio_daemon()
+        request_id = uuid.uuid4().hex
+        timeout_s = max(5.0, self.config.runtime_command_timeout_seconds)
+        timeout_ms = round(timeout_s * 1000)
+        command = (
+            f"$id='{request_id}'; $payload='{payload}'; "
+            "$request='runtime_vio_request.txt'; $response='runtime_vio_response.txt'; "
+            "$tmp=('runtime_vio_request.'+$id+'.tmp'); "
+            "[IO.File]::WriteAllText($tmp, ($id+' '+$payload), [Text.Encoding]::ASCII); "
+            "Move-Item -Force $tmp $request; "
+            f"$deadline=(Get-Date).AddMilliseconds({timeout_ms}); $reply=''; "
+            "do { Start-Sleep -Milliseconds 10; if (Test-Path $response) { "
+            "$candidate=[IO.File]::ReadAllText($response).Trim(); "
+            "if ($candidate.StartsWith($id+' ')) { $reply=$candidate } } } "
+            "while (-not $reply -and (Get-Date) -lt $deadline); "
+            "if (-not $reply) { Write-Output ('RUNTIME_VIO_TIMEOUT id='+$id); exit 2 }; "
+            "Write-Output $reply; if ($reply.StartsWith($id+' OK ')) { exit 0 } else { exit 1 }"
+        )
+        proc = self._run_zynq_powershell(command, timeout_s=round(timeout_s + 10))
+        if proc.returncode != 0:
+            self._runtime_daemon_ready = False
+            raise RuntimeError(proc.stdout or f"persistent FPGA runtime command {request_id} failed")
+        if f"{request_id} OK " not in (proc.stdout or ""):
+            self._runtime_daemon_ready = False
+            raise RuntimeError(f"invalid persistent FPGA runtime response: {proc.stdout}")
+        return 0
+
+    def _stop_runtime_vio_daemon(self) -> None:
+        self._runtime_daemon_ready = False
+        if self.config.dry_run or self.config.zynq_os != "windows":
+            return
+        command = (
+            "if (Test-Path runtime_vio_daemon.heartbeat) { "
+            "[IO.File]::WriteAllText('runtime_vio_daemon.stop','stop'); "
+            "$deadline=(Get-Date).AddSeconds(10); "
+            "while ((Test-Path runtime_vio_daemon.heartbeat) -and (Get-Date) -lt $deadline) { "
+            "Start-Sleep -Milliseconds 100 } }; "
+            "if (Test-Path runtime_vio_daemon.heartbeat) { "
+            "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'vivado.exe' -and $_.CommandLine -like '*runtime_vio_daemon.tcl*' } | "
+            "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; "
+            "Remove-Item -Force runtime_vio_daemon.heartbeat -ErrorAction SilentlyContinue }"
+        )
+        self._run_zynq_powershell(command, timeout_s=20)
+        if self._runtime_daemon_process is not None:
+            try:
+                self._runtime_daemon_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._runtime_daemon_process.terminate()
+                try:
+                    self._runtime_daemon_process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self._runtime_daemon_process.kill()
+                    self._runtime_daemon_process.wait(timeout=3)
+            self._runtime_daemon_process = None
+        if self._runtime_daemon_log_handle is not None:
+            self._runtime_daemon_log_handle.close()
+            self._runtime_daemon_log_handle = None
+
+    def _program_fpga(
+        self,
+        bitstream: str,
+        *,
+        packet: int | None = None,
+        rails: RailVoltages | None = None,
+        packet_count: int = 1,
+    ) -> int:
+        if self.config.fpga_dac_enabled:
+            if packet is None or rails is None:
+                raise ValueError("runtime FPGA programming requires packet and rails")
+            payload = self._runtime_command_payload(packet, rails, packet_count)
+            if self.config.persistent_fpga_runtime:
+                return self._program_fpga_via_runtime_daemon(payload)
+            probes = FPGA_RUNTIME_PROBES
+            if self.config.zynq_os == "windows":
+                command = (
+                    f"& '{self.config.vivado_cmd}' -mode batch -source program_and_run_runtime.tcl "
+                    f"-tclargs '{bitstream}' '{probes}' '{payload}' *> vivado_api_program.log; "
+                    "$vivado_exit = $LASTEXITCODE; "
+                    "Get-Process hw_server -ErrorAction SilentlyContinue | Stop-Process -Force; "
+                    "Write-Output ('VIVADO_EXIT=' + $vivado_exit); "
+                    "exit $vivado_exit"
+                )
+                proc = self._run_zynq_powershell(command, timeout_s=180)
+            else:
+                proc = self._run_zynq(
+                    f"{self.config.vivado_cmd} -mode batch -source program_and_run_runtime.tcl "
+                    f"-tclargs {self._sh_quote(bitstream)} {self._sh_quote(probes)} {self._sh_quote(payload)}",
+                    timeout_s=180,
+                )
+            return proc.returncode
+
         if self.config.zynq_os == "windows":
             command = (
                 f"Copy-Item -Force {bitstream} caravel_scan_debug_fpga.bit; "
@@ -1727,8 +2134,13 @@ PY
             )
         return proc.returncode
 
+    def _capture_local_path(self, remote_output_dir: str, index: int, kind: str, rails: RailVoltages) -> Path:
+        return self.config.run_dir / "raw" / (
+            f"{index}_{kind}_wl{round(rails.vcc_wl_set_v * 1000):.0f}_{Path(remote_output_dir).name}"
+        )
+
     def _copy_capture(self, remote_output_dir: str, index: int, kind: str, rails: RailVoltages) -> Path:
-        local = self.config.run_dir / "raw" / f"{index}_{kind}_wl{round(rails.vcc_wl_set_v * 1000):.0f}_{Path(remote_output_dir).name}"
+        local = self._capture_local_path(remote_output_dir, index, kind, rails)
         if local.exists():
             shutil.rmtree(local)
         if self.config.saleae_host:
@@ -1746,6 +2158,69 @@ PY
         else:
             shutil.copytree(remote_output_dir, local)
         return local
+
+    def _schedule_capture_copy(self, remote_output_dir: str, index: int, kind: str, rails: RailVoltages) -> None:
+        errors: list[BaseException] = []
+
+        def copy_worker() -> None:
+            try:
+                self._copy_capture(remote_output_dir, index, kind, rails)
+            except BaseException as exc:  # retained and raised by the owning hardware operation
+                errors.append(exc)
+
+        thread = threading.Thread(target=copy_worker, name=f"capture-copy-{index}", daemon=False)
+        self._pending_capture_copies.append((thread, errors))
+        thread.start()
+
+    def _wait_for_pending_capture_copies(self) -> None:
+        failures: list[str] = []
+        pending, self._pending_capture_copies = self._pending_capture_copies, []
+        for thread, errors in pending:
+            thread.join()
+            failures.extend(str(exc) for exc in errors)
+        if failures:
+            raise RuntimeError("deferred capture copy failed: " + "; ".join(failures))
+
+    def _summarize_remote_capture(
+        self,
+        index: int,
+        stage: str,
+        kind: str,
+        packet: int,
+        rails: RailVoltages,
+        remote_output_dir: str,
+        local_output_dir: Path,
+    ) -> dict[str, str]:
+        tmp = f".manifest_summary_{index}_{uuid.uuid4().hex}.csv"
+        args = [
+            "--index", str(index),
+            "--phase", stage,
+            "--packet", f"0x{packet:04x}",
+            "--bits", bits_lsb(packet),
+            "--vcc-set-v", str(rails.vcc_set_v),
+            "--vcc-wl-set-v", str(rails.vcc_wl_set_v),
+            "--remote-output-dir", remote_output_dir,
+            "--local-output-dir", remote_output_dir,
+            "--recorded-local-output-dir", str(local_output_dir),
+            "--manifest", tmp,
+        ]
+        arg_text = " ".join(self._sh_quote(value) for value in args)
+        begin = "__REMOTE_SUMMARY_CSV_BEGIN__"
+        end = "__REMOTE_SUMMARY_CSV_END__"
+        command = (
+            f"{self.config.saleae_capture_script.rsplit('/', 1)[0]}/python summarize_capture.py {arg_text}; "
+            f"rc=$?; echo {begin}; cat {self._sh_quote(tmp)} 2>/dev/null; echo {end}; "
+            f"rm -f {self._sh_quote(tmp)}; exit $rc"
+        )
+        proc = self._run_saleae(command, timeout_s=30)
+        output = proc.stdout or ""
+        if proc.returncode != 0 or begin not in output or end not in output:
+            raise RuntimeError(output or "remote capture summary failed")
+        csv_text = output.split(begin, 1)[1].split(end, 1)[0].strip()
+        rows = list(csv.DictReader(io.StringIO(csv_text)))
+        if not rows:
+            raise RuntimeError(f"remote capture summary returned no CSV row: {output}")
+        return rows[-1]
 
     def _summarize_capture(
         self,
@@ -1908,6 +2383,42 @@ PY
             )
         if proc.returncode != 0:
             raise RuntimeError(proc.stdout)
+
+    def _read_remote_binary(self, filename: str) -> bytes:
+        if not self.config.zynq_host:
+            return (Path(self.config.zynq_dir) / filename).read_bytes()
+
+        if not self.config.zynq_password:
+            scp = shutil.which("scp")
+            if scp:
+                download_path = self.config.run_dir / f".{filename}.download"
+                source = f"{self.config.zynq_host}:{self.config.zynq_dir.rstrip('/')}/{filename}"
+                try:
+                    proc = self.runner.run([scp, source, str(download_path)], timeout_s=180)
+                    if proc.returncode == 0:
+                        return download_path.read_bytes()
+                    scp_error = proc.stdout
+                finally:
+                    download_path.unlink(missing_ok=True)
+                raise RuntimeError(f"scp download failed for {filename}: {scp_error}")
+
+        if self.config.zynq_os == "windows":
+            proc = self._run_zynq_powershell(
+                f"Write-Output ('B64:' + [Convert]::ToBase64String([IO.File]::ReadAllBytes('{filename}')))",
+                timeout_s=180,
+            )
+        else:
+            proc = self._run_zynq(
+                f"base64 {self._sh_quote(filename)} | tr -d '\\n' | sed 's/^/B64:/'",
+                timeout_s=180,
+            )
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stdout or f"could not download {filename}")
+        marker = "B64:"
+        start = proc.stdout.find(marker)
+        if start < 0:
+            raise RuntimeError(f"could not find binary payload for {filename}")
+        return base64.b64decode(proc.stdout[start + len(marker):].strip())
 
     def _write_remote_binary_chunked(self, filename: str, data: bytes) -> None:
         encoded = base64.b64encode(data).decode()

@@ -59,6 +59,7 @@ AFTER_TRIGGER_SECONDS = float(os.environ.get("AFTER_TRIGGER_SECONDS", "1.2"))
 TRIM_DATA_SECONDS_ENV = os.environ.get("TRIM_DATA_SECONDS", "").strip()
 TRIM_DATA_SECONDS = float(TRIM_DATA_SECONDS_ENV) if TRIM_DATA_SECONDS_ENV else None
 ENABLE_ADC_MONITOR = os.environ.get("ENABLE_ADC_MONITOR", "1").strip().lower() not in ("0", "false", "no")
+SKIP_SET_RAILS = os.environ.get("SKIP_SET_RAILS", "0") == "1"
 SCAN_REQUEST = os.environ.get("SCAN_REQUEST", "0x0000").strip()
 SCAN_RAIL_COMMAND = os.environ.get("SCAN_RAIL_COMMAND", "SCAN_SET_RAILS").strip()
 SCAN_REQUEST_TAG = SCAN_REQUEST.lower().replace("0x", "")
@@ -634,7 +635,14 @@ def main():
     }
 
     try:
-        rails = set_scan_set_rails()
+        rails = {
+            "command": "FPGA_DAC81416",
+            "response": "SKIPPED_BY_ENV",
+            "parsed_volts": {
+                "Vcc_set_V": RAILS_REQUESTED["Vcc_set_V"],
+                "Vcc_wl_set_V": RAILS_REQUESTED["Vcc_wl_set_V"],
+            },
+        } if SKIP_SET_RAILS else set_scan_set_rails()
         if POST_RAIL_DELAY_SECONDS > 0:
             time.sleep(POST_RAIL_DELAY_SECONDS)
         capture_info = run_capture(output_dir)

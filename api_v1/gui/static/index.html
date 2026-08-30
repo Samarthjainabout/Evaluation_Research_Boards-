@@ -40,9 +40,9 @@
             </div>
             <div class="scale" aria-label="Heatmap color scale">
               <span id="scaleMin">--</span>
-              <label>Min <input id="currentMinRange" type="range" min="0" max="500" step="5"><input id="currentMinInput" type="number" min="0" max="500" step="5"></label>
+              <label>Min <input id="currentMinRange" type="range" min="0" max="150" step="5" value="0"><input id="currentMinInput" type="number" min="0" max="150" step="5" value="0"></label>
               <span class="scale-bar"></span>
-              <label>Max <input id="currentMaxRange" type="range" min="0" max="500" step="5"><input id="currentMaxInput" type="number" min="0" max="500" step="5"></label>
+              <label>Max <input id="currentMaxRange" type="range" min="0" max="150" step="5" value="100"><input id="currentMaxInput" type="number" min="0" max="150" step="5" value="100"></label>
               <span id="scaleMax">--</span>
             </div>
           </div>
@@ -105,6 +105,6 @@
         <canvas id="chart" width="1200" height="220" aria-label="Current trend chart"></canvas>
       </section>
     </main>
-    <script src="/app.js?v=continue-selected-run-20260824"></script>
+    <script src="/app.js?v=heatmap-limit-150-20260828"></script>
   </body>
 </html>

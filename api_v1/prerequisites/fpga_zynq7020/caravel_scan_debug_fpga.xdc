@@ -18,6 +18,17 @@ set_property PACKAGE_PIN W15 [get_ports caravel_scan_se_o]
 set_property PACKAGE_PIN Y17 [get_ports caravel_scan_si_o]
 set_property PACKAGE_PIN Y16 [get_ports caravel_scan_cc_o]
 
+# DAC81416 control on the free upper J10 pins.  J10-7/Y17 cannot be used for
+# DAC CS because it remains the active Caravel ScanInDL connection.
+#   J10-28 / V12 -> DAC SCLK
+#   J10-29 / U12 -> DAC SDI
+#   J10-30 / T12 -> DAC CS/SYNC (active low)
+#   J10-31 / T10 -> DAC LDAC (active low; held inactive in async mode)
+set_property PACKAGE_PIN V12 [get_ports dac_sclk_o]
+set_property PACKAGE_PIN U12 [get_ports dac_sdi_o]
+set_property PACKAGE_PIN T12 [get_ports dac_cs_n_o]
+set_property PACKAGE_PIN T10 [get_ports dac_ldac_n_o]
+
 set_property PACKAGE_PIN M14 [get_ports busy_o]
 set_property PACKAGE_PIN M15 [get_ports done_o]
 
@@ -30,6 +41,10 @@ set_property IOSTANDARD LVCMOS33 [get_ports caravel_scan_si_o]
 set_property IOSTANDARD LVCMOS33 [get_ports caravel_scan_cc_o]
 set_property IOSTANDARD LVCMOS33 [get_ports busy_o]
 set_property IOSTANDARD LVCMOS33 [get_ports done_o]
+set_property IOSTANDARD LVCMOS33 [get_ports dac_sclk_o]
+set_property IOSTANDARD LVCMOS33 [get_ports dac_sdi_o]
+set_property IOSTANDARD LVCMOS33 [get_ports dac_cs_n_o]
+set_property IOSTANDARD LVCMOS33 [get_ports dac_ldac_n_o]
 
 set_property DRIVE 8 [get_ports caravel_tm_o]
 set_property DRIVE 8 [get_ports caravel_resetb_o]
@@ -41,6 +56,14 @@ set_property SLEW SLOW [get_ports caravel_resetb_o]
 set_property SLEW SLOW [get_ports caravel_scan_se_o]
 set_property SLEW SLOW [get_ports caravel_scan_si_o]
 set_property SLEW SLOW [get_ports caravel_scan_cc_o]
+set_property DRIVE 8 [get_ports dac_sclk_o]
+set_property DRIVE 8 [get_ports dac_sdi_o]
+set_property DRIVE 8 [get_ports dac_cs_n_o]
+set_property DRIVE 8 [get_ports dac_ldac_n_o]
+set_property SLEW SLOW [get_ports dac_sclk_o]
+set_property SLEW SLOW [get_ports dac_sdi_o]
+set_property SLEW SLOW [get_ports dac_cs_n_o]
+set_property SLEW SLOW [get_ports dac_ldac_n_o]
 
 # Weak defaults are kept as a board-level guard, but the RTL now actively
 # drives the required idle waveform: TM=0, ScanInDR=1, ScanInDL=0, ScanInCC=0.
@@ -48,3 +71,7 @@ set_property PULLDOWN true [get_ports caravel_tm_o]
 set_property PULLUP true [get_ports caravel_scan_se_o]
 set_property PULLDOWN true [get_ports caravel_scan_si_o]
 set_property PULLDOWN true [get_ports caravel_scan_cc_o]
+set_property PULLDOWN true [get_ports dac_sclk_o]
+set_property PULLDOWN true [get_ports dac_sdi_o]
+set_property PULLUP true [get_ports dac_cs_n_o]
+set_property PULLUP true [get_ports dac_ldac_n_o]

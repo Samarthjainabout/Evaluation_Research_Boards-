@@ -38,7 +38,7 @@ try:
         "reset": len(_DEFAULT_SCAN_CONFIG.reset_sweep.vcc_set_v) * len(_DEFAULT_SCAN_CONFIG.reset_sweep.vcc_wl_set_v),
     }
 except Exception:
-    DEFAULT_THRESHOLDS_UA = {"set": 200.0, "reset": 130.0}
+    DEFAULT_THRESHOLDS_UA = {"set": 70.0, "reset": 5.0}
     DEFAULT_SWEEP_PULSE_COUNTS = {"set": 112, "reset": 40}
 
 

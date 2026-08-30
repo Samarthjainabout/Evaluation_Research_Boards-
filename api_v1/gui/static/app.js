@@ -3,11 +3,13 @@ const state = {
   activeKey: "",
   commandsEnabled: false,
   manualRun: false,
-  currentMin_uA: 80,
-  currentMax_uA: 335,
+  currentMin_uA: 0,
+  currentMax_uA: 100,
 };
 
 const CURRENT_DISPLAY_SCALE = 1;
+const HEATMAP_SCALE_MIN_UA = 0;
+const HEATMAP_SCALE_MAX_UA = 150;
 
 const els = {
   runSelect: document.getElementById("runSelect"),
@@ -72,10 +74,12 @@ function colorFor(value, min, max) {
 }
 
 function currentRange() {
-  const min = Number(state.currentMin_uA);
-  const max = Number(state.currentMax_uA);
+  const requestedMin = Number(state.currentMin_uA);
+  const requestedMax = Number(state.currentMax_uA);
+  const min = Math.max(HEATMAP_SCALE_MIN_UA, Math.min(HEATMAP_SCALE_MAX_UA, requestedMin));
+  const max = Math.max(HEATMAP_SCALE_MIN_UA, Math.min(HEATMAP_SCALE_MAX_UA, requestedMax));
   return {
-    min: Number.isFinite(min) ? min : 0,
+    min: Number.isFinite(min) ? min : HEATMAP_SCALE_MIN_UA,
     max: Number.isFinite(max) && max > min ? max : min + 5,
   };
 }
@@ -91,10 +95,11 @@ function syncCurrentRangeControls() {
 function setCurrentRange(part, value) {
   const next = Number(value);
   if (!Number.isFinite(next)) return;
+  const bounded = Math.max(HEATMAP_SCALE_MIN_UA, Math.min(HEATMAP_SCALE_MAX_UA, next));
   if (part === "min") {
-    state.currentMin_uA = Math.min(next, state.currentMax_uA - 5);
+    state.currentMin_uA = Math.min(bounded, state.currentMax_uA - 5);
   } else {
-    state.currentMax_uA = Math.max(next, state.currentMin_uA + 5);
+    state.currentMax_uA = Math.max(bounded, state.currentMin_uA + 5);
   }
   syncCurrentRangeControls();
   repaintHeatmap();
@@ -630,7 +635,15 @@ async function sendCommand(payload, targetText, extraText = "") {
   });
   const data = await response.json();
   els.commandNote.textContent = data.error || `Started ${payload.operation} in ${data.runDir}`;
-  if (!data.error) state.runningCommandId = data.id;
+  if (!data.error) {
+    state.runningCommandId = data.id;
+    // A newly started command must become the visible run. Otherwise a user
+    // who was inspecting an older failed run keeps seeing its stale API error
+    // even while the new hardware operation succeeds.
+    state.manualRun = false;
+    state.selectedRun = "";
+    renderFollowMode();
+  }
   setTimeout(refresh, 900);
 }
 

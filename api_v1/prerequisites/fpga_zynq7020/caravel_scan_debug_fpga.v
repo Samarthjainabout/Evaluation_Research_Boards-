@@ -15,7 +15,9 @@ module caravel_scan_debug_fpga #(
     parameter [4:0]  SEQ_START_ROW = 5'd3,
     parameter [4:0]  SEQ_START_COL = 5'd0,
     parameter [31:0] FPGA_RESET_ASSERT_CYCLES = 32'd240000,
-    parameter        MANUAL_RESET_MODE = 1'b0
+    parameter        MANUAL_RESET_MODE = 1'b0,
+    parameter integer DAC_VCC_SET_MV = 500,
+    parameter integer DAC_VCC_WL_SET_MV = 2500
 ) (
     input  wire       wb_clk_i,
     input  wire       caravel_ready_i,
@@ -24,6 +26,10 @@ module caravel_scan_debug_fpga #(
     output wire       caravel_scan_se_o,
     output wire       caravel_scan_si_o,
     output wire       caravel_scan_cc_o,
+    output wire       dac_sclk_o,
+    output wire       dac_sdi_o,
+    output wire       dac_cs_n_o,
+    output wire       dac_ldac_n_o,
     output reg        busy_o,
     output reg        done_o
 );
@@ -38,21 +44,35 @@ module caravel_scan_debug_fpga #(
     localparam [3:0] ST_SHIFT      = 4'd5;
     localparam [3:0] ST_TM_TAIL    = 4'd6;
     localparam [3:0] ST_DONE       = 4'd7;
+    localparam [3:0] ST_DAC_INIT   = 4'd8;
 
     reg [31:0] wait_count = 32'd0;
     reg [4:0]  scan_cycle = 5'd0;
     reg [4:0]  seq_row = SEQ_START_ROW;
     reg [4:0]  seq_col = SEQ_START_COL;
     reg        seq_finished = 1'b0;
-    reg        caravel_resetb_r = (SEQUENCE_MODE ? 1'b1 : 1'b0);
+    reg        caravel_resetb_r = 1'b0;
     reg        caravel_tm_r = 1'b0;
     reg        caravel_scan_se_r = 1'b1;
     reg        caravel_scan_si_r = 1'b0;
     reg        caravel_scan_cc_r = 1'b0;
     reg        ready_low_seen_r = 1'b0;
-    reg [3:0]  state = (SEQUENCE_MODE ? ST_INIT_DELAY : ST_FPGA_RESET);
+    reg [3:0]  state = ST_DAC_INIT;
 
     wire [15:0] active_scan_word = SEQUENCE_MODE ? {OP_SET, seq_row, seq_col, seq_row} : SCAN_WORD;
+    wire dac_ready;
+
+    dac81416_spi #(
+        .VCC_SET_MV(DAC_VCC_SET_MV),
+        .VCC_WL_SET_MV(DAC_VCC_WL_SET_MV)
+    ) dac_controller (
+        .clk_i(wb_clk_i),
+        .sclk_o(dac_sclk_o),
+        .sdi_o(dac_sdi_o),
+        .cs_n_o(dac_cs_n_o),
+        .ldac_n_o(dac_ldac_n_o),
+        .ready_o(dac_ready)
+    );
 
     assign caravel_resetb_o  = MANUAL_RESET_MODE ? 1'bz : caravel_resetb_r;
     assign caravel_tm_o      = caravel_tm_r;
@@ -62,6 +82,24 @@ module caravel_scan_debug_fpga #(
 
     always @(negedge wb_clk_i) begin
         case (state)
+                ST_DAC_INIT: begin
+                    // Keep Caravel in reset until every DAC range, power and
+                    // output register has been written.
+                    caravel_resetb_r   <= 1'b0;
+                    caravel_tm_r       <= 1'b0;
+                    caravel_scan_se_r  <= 1'b1;
+                    caravel_scan_si_r  <= 1'b0;
+                    caravel_scan_cc_r  <= 1'b0;
+                    busy_o             <= 1'b0;
+                    done_o             <= 1'b0;
+                    ready_low_seen_r   <= 1'b0;
+                    wait_count         <= 32'd0;
+                    scan_cycle         <= 5'd0;
+                    if (dac_ready) begin
+                        state <= SEQUENCE_MODE ? ST_INIT_DELAY : ST_FPGA_RESET;
+                    end
+                end
+
                 ST_INIT_DELAY: begin
                     caravel_resetb_r   <= 1'b1;
                     caravel_tm_r       <= 1'b0;
@@ -257,7 +295,7 @@ module caravel_scan_debug_fpga #(
                     busy_o            <= 1'b0;
                     done_o            <= 1'b0;
                     ready_low_seen_r  <= 1'b0;
-                    state             <= ST_FPGA_RESET;
+                    state             <= ST_DAC_INIT;
                     wait_count        <= 32'd0;
                     scan_cycle        <= 5'd0;
                     seq_row           <= SEQ_START_ROW;

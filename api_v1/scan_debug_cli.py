@@ -47,7 +47,11 @@ def build_config(args: argparse.Namespace) -> ScanDebugConfig:
         saleae_usb_controller_pci=args.saleae_usb_controller_pci,
         saleae_sudo_password=args.saleae_sudo_password or None,
         adc_dac_port=args.adc_dac_port,
-        dac_teensy_reflash_enabled=not args.disable_dac_teensy_reflash,
+        fpga_dac_enabled=not args.legacy_teensy_dac,
+        persistent_fpga_runtime=not args.disable_persistent_fpga_runtime,
+        capture_program_pulses=args.capture_program_pulses,
+        enable_adc_monitor=args.legacy_teensy_dac,
+        dac_teensy_reflash_enabled=args.legacy_teensy_dac and not args.disable_dac_teensy_reflash,
         dac_teensy_app_serial=args.dac_teensy_app_serial,
         dac_teensy_bootloader_serial=args.dac_teensy_bootloader_serial,
         dac_teensy_loader=args.dac_teensy_loader,
@@ -93,7 +97,18 @@ def build_config(args: argparse.Namespace) -> ScanDebugConfig:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Scan-debug cell read/set/reset API CLI")
-    parser.add_argument("operation", choices=["read", "set", "reset", "cycle", "read-array", "build-array-bitstreams"])
+    parser.add_argument(
+        "operation",
+        choices=[
+            "read",
+            "set",
+            "reset",
+            "cycle",
+            "read-array",
+            "build-runtime-bitstream",
+            "build-array-bitstreams",
+        ],
+    )
     parser.add_argument("--row", type=int)
     parser.add_argument("--col", type=int, default=0)
     parser.add_argument("--row-start", type=int, default=0)
@@ -114,8 +129,8 @@ def main() -> int:
     parser.add_argument("--set-vcc-wl-set", default="0.5,0.6,0.7,0.8,0.9,1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0")
     parser.add_argument("--reset-vcc-set", default="3.3,3.4,3.5,3.6,3.7")
     parser.add_argument("--reset-vcc-wl-set", default="1.0,1.2,1.4,1.6,1.8,2.0,2.2,2.3")
-    parser.add_argument("--set-threshold", type=float, default=200.0)
-    parser.add_argument("--reset-threshold", type=float, default=130.0)
+    parser.add_argument("--set-threshold", type=float, default=70.0)
+    parser.add_argument("--reset-threshold", type=float, default=5.0)
 
     parser.add_argument("--zynq-host", default=os.environ.get("SCAN_DEBUG_ZYNQ_HOST", "geethika@100.116.216.70"))
     parser.add_argument("--zynq-password", default=os.environ.get("SCAN_DEBUG_ZYNQ_PASSWORD", ""))
@@ -161,6 +176,22 @@ def main() -> int:
         "--adc-dac-port",
         default=os.environ.get("SCAN_DEBUG_ADC_DAC_PORT", "/dev/serial/by-id/usb-Teensyduino_USB_Serial_8829000-if00"),
     )
+    parser.add_argument(
+        "--legacy-teensy-dac",
+        action="store_true",
+        default=os.environ.get("SCAN_DEBUG_LEGACY_TEENSY_DAC", "0") == "1",
+        help="use the legacy USB Teensy for DAC rails and ADC monitoring instead of FPGA DAC control",
+    )
+    parser.add_argument(
+        "--disable-persistent-fpga-runtime",
+        action="store_true",
+        help="fall back to starting a Vivado batch process for every FPGA command",
+    )
+    parser.add_argument(
+        "--capture-program-pulses",
+        action="store_true",
+        help="capture set/reset pulse waveforms as well as their verification reads",
+    )
     parser.add_argument("--disable-dac-teensy-reflash", action="store_true", default=os.environ.get("SCAN_DEBUG_DISABLE_DAC_TEENSY_REFLASH", "0") == "1")
     parser.add_argument("--dac-teensy-app-serial", default=os.environ.get("SCAN_DEBUG_DAC_TEENSY_APP_SERIAL", "8829000"))
     parser.add_argument("--dac-teensy-bootloader-serial", default=os.environ.get("SCAN_DEBUG_DAC_TEENSY_BOOTLOADER_SERIAL", "000D78D4"))
@@ -174,8 +205,8 @@ def main() -> int:
     parser.add_argument("--hardware-queue-poll-seconds", type=float, default=float(os.environ.get("SCAN_DEBUG_HARDWARE_QUEUE_POLL_SECONDS", "5")))
     parser.add_argument("--hardware-queue-stale-seconds", type=float, default=float(os.environ.get("SCAN_DEBUG_HARDWARE_QUEUE_STALE_SECONDS", "43200")))
     args = parser.parse_args()
-    if args.operation not in {"read-array", "build-array-bitstreams"} and args.row is None:
-        parser.error("--row is required unless operation is read-array or build-array-bitstreams")
+    if args.operation not in {"read-array", "build-runtime-bitstream", "build-array-bitstreams"} and args.row is None:
+        parser.error("--row is required unless operation is read-array or a bitstream build")
 
     api = ScanDebugCellAPI(build_config(args))
     with api.hardware_queue(args.operation):
