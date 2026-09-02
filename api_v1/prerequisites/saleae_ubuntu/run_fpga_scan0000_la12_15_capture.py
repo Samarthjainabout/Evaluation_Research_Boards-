@@ -541,18 +541,18 @@ def run_capture(output_dir):
                 capture_config = automation.CaptureConfiguration(capture_mode=capture_mode)
                 saleae_start = time.monotonic()
                 starts["saleae_start_monotonic"] = saleae_start
-                print(
-                    f"SALEAE_ARMED digital_rate={digital_sample_rate} "
-                    f"analog_rate={ANALOG_SAMPLE_RATE} duration={DURATION_SECONDS} "
-                    f"reset_mode={RESET_MODE} trigger_channel={TRIGGER_CHANNEL} "
-                    f"trigger_edge={TRIGGER_EDGE}",
-                    flush=True,
-                )
                 with manager.start_capture(
                     device_id=device.device_id,
                     device_configuration=device_config,
                     capture_configuration=capture_config,
                 ) as capture:
+                    print(
+                        f"SALEAE_ARMED digital_rate={digital_sample_rate} "
+                        f"analog_rate={ANALOG_SAMPLE_RATE} duration={DURATION_SECONDS} "
+                        f"reset_mode={RESET_MODE} trigger_channel={TRIGGER_CHANNEL} "
+                        f"trigger_edge={TRIGGER_EDGE}",
+                        flush=True,
+                    )
                     time.sleep(PRE_RESET_DELAY_SECONDS)
                     if RESET_MODE == "hk":
                         reset_caravel(markers)

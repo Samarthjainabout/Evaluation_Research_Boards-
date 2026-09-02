@@ -11,15 +11,16 @@ class DefaultThresholdTests(unittest.TestCase):
 
 
 class HeatmapScaleTests(unittest.TestCase):
-    def test_default_heatmap_scale_is_zero_to_one_hundred_microamps(self) -> None:
+    def test_default_heatmap_scale_is_zero_to_two_hundred_microsiemens(self) -> None:
         app_js = (STATIC_DIR / "app.js").read_text()
         index_html = (STATIC_DIR / "index.html").read_text()
 
         self.assertIn("currentMin_uA: 0", app_js)
-        self.assertIn("currentMax_uA: 100", app_js)
-        self.assertIn("HEATMAP_SCALE_MAX_UA = 150", app_js)
+        self.assertIn("currentMax_uA: 200", app_js)
+        self.assertIn("HEATMAP_SCALE_MAX_UA = 300", app_js)
+        self.assertIn("CURRENT_DISPLAY_SCALE = 1 / READ_VCC_SET_V", app_js)
         self.assertNotIn('max="500"', index_html)
-        self.assertEqual(index_html.count('max="150"'), 4)
+        self.assertEqual(index_html.count('max="300"'), 4)
 
 
 class WindowsProcessTreeTerminationTests(unittest.TestCase):

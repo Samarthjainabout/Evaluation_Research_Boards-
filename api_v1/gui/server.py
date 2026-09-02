@@ -11,6 +11,7 @@ import signal
 import shlex
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -23,7 +24,17 @@ from urllib.parse import parse_qs, urlparse
 ROOT = Path(__file__).resolve().parents[2]
 RUNS_DIR = ROOT / "api_v1" / "runs"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+READ_CONDUCTANCE_VOLTAGE_V = 0.5
+
+
+def _conductance_uS(current_uA: Any) -> float | None:
+    value = _float_or_none(current_uA)
+    return value / READ_CONDUCTANCE_VOLTAGE_V if value is not None else None
 GRID_SIZE = 32
+STATE_CACHE_SECONDS = 2.0
+
+_manifest_cache_lock = threading.RLock()
+_manifest_cache: dict[Path, tuple[tuple[int, int], list[dict[str, Any]]]] = {}
 
 try:
     from api_v1.cell_api import ScanDebugConfig
@@ -80,6 +91,16 @@ def _parse_cell(value: str | None) -> dict[str, int] | None:
 
 
 def _read_manifest(path: Path) -> list[dict[str, Any]]:
+    try:
+        stat = path.stat()
+    except OSError:
+        return []
+    signature = (stat.st_mtime_ns, stat.st_size)
+    with _manifest_cache_lock:
+        cached = _manifest_cache.get(path)
+        if cached and cached[0] == signature:
+            return cached[1]
+
     rows: list[dict[str, Any]] = []
     try:
         with path.open(newline="") as handle:
@@ -89,6 +110,8 @@ def _read_manifest(path: Path) -> list[dict[str, Any]]:
                 row["index"] = _int_or_none(raw.get("index"))
                 row["cellAddress"] = cell
                 row["current_uA"] = _float_or_none(raw.get("la_set_window_mean_uA"))
+                row["read_voltage_V"] = READ_CONDUCTANCE_VOLTAGE_V if row["current_uA"] is not None else None
+                row["conductance_uS"] = _conductance_uS(row["current_uA"])
                 row["vcc_set_V"] = _float_or_none(raw.get("vcc_set_V"))
                 row["vcc_wl_set_V"] = _float_or_none(raw.get("vcc_wl_set_V"))
                 row["ok"] = str(raw.get("ok", "")).lower() == "true"
@@ -99,6 +122,8 @@ def _read_manifest(path: Path) -> list[dict[str, Any]]:
     except OSError:
         return []
     rows.sort(key=lambda item: item.get("index") if item.get("index") is not None else -1)
+    with _manifest_cache_lock:
+        _manifest_cache[path] = (signature, rows)
     return rows
 
 
@@ -107,10 +132,16 @@ def _manifest_for_run(run_dir: Path) -> Path:
 
 
 def _run_updated_at(run_dir: Path) -> float:
-    files = [path for path in run_dir.glob("manifest.csv")] + list(run_dir.glob("*.log")) + list(run_dir.glob("progress.jsonl"))
-    if not files:
-        return run_dir.stat().st_mtime
-    return max(path.stat().st_mtime for path in files)
+    # Directory mtime advances when capture/log files are created. The two
+    # continuously appended data files cover updates that do not create files.
+    # Avoid globbing and stat'ing thousands of capture logs on every GUI poll.
+    timestamps: list[float] = []
+    for path in (run_dir, run_dir / "manifest.csv", run_dir / "progress.jsonl"):
+        try:
+            timestamps.append(path.stat().st_mtime)
+        except OSError:
+            continue
+    return max(timestamps, default=0.0)
 
 
 def _latest_run(runs_dir: Path) -> Path | None:
@@ -449,7 +480,9 @@ def _combined_cell_history(run_dir: Path, rows: list[dict[str, Any]], last_cell:
             if row.get("cellAddress") and _cell_key(row["cellAddress"]) == target_key
         )
     combined.extend(rows)
-    out = combined[-160:]
+    # Cached manifest rows are shared by concurrent requests. Copy the small
+    # visible tail before assigning presentation-only event ordering.
+    out = [dict(row) for row in combined[-160:]]
     for index, row in enumerate(out):
         row["eventOrder"] = index + 0.9
     return out
@@ -518,8 +551,11 @@ def _summarize(run_dir: Path, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "lastRead": last_read,
         "lastReadCell": last_read_cell,
         "lastCurrent_uA": last_current,
+        "lastConductance_uS": _conductance_uS(last_current),
         "previousCurrent_uA": previous_current,
+        "previousConductance_uS": _conductance_uS(previous_current),
         "currentDelta_uA": delta,
+        "conductanceDelta_uS": _conductance_uS(delta),
         "trend": trend,
         "counts": {
             "rows": len(rows),
@@ -528,7 +564,13 @@ def _summarize(run_dir: Path, rows: list[dict[str, Any]]) -> dict[str, Any]:
             "ok": sum(1 for row in rows if row.get("ok")),
         },
         "scale": {"min_uA": min_current, "max_uA": max_current},
+        "conductanceScale": {
+            "min_uS": _conductance_uS(min_current),
+            "max_uS": _conductance_uS(max_current),
+            "read_voltage_V": READ_CONDUCTANCE_VOLTAGE_V,
+        },
         "thresholds_uA": thresholds,
+        "thresholds_uS": {key: _conductance_uS(value) for key, value in thresholds.items()},
         "cells": list(heatmap_cells.values()),
         "history": history,
         "readHistory": read_history[-160:],
@@ -543,6 +585,9 @@ def _summarize(run_dir: Path, rows: list[dict[str, Any]]) -> dict[str, Any]:
 class GuiHandler(SimpleHTTPRequestHandler):
     config: ViewerConfig
     running_commands: dict[str, dict[str, Any]] = {}
+    state_build_lock = threading.Lock()
+    state_cache: dict[Path, tuple[float, dict[str, Any]]] = {}
+    run_choices_cache: tuple[float, list[dict[str, Any]]] | None = None
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
@@ -568,11 +613,26 @@ class GuiHandler(SimpleHTTPRequestHandler):
             if run_dir is None:
                 self._send_json({"runs": [], "state": None})
                 return
-            rows = _read_manifest(_manifest_for_run(run_dir))
+            with self.state_build_lock:
+                now = time.monotonic()
+                cached = self.state_cache.get(run_dir)
+                if cached and now - cached[0] < STATE_CACHE_SECONDS:
+                    summary = cached[1]
+                else:
+                    rows = _read_manifest(_manifest_for_run(run_dir))
+                    summary = _summarize(run_dir, rows)
+                    self.state_cache[run_dir] = (now, summary)
+
+                choices_cached = self.run_choices_cache
+                if choices_cached and now - choices_cached[0] < STATE_CACHE_SECONDS:
+                    choices = choices_cached[1]
+                else:
+                    choices = _run_choices(self.config.runs_dir)
+                    type(self).run_choices_cache = (now, choices)
             self._send_json(
                 {
-                    "runs": _run_choices(self.config.runs_dir),
-                    "state": _summarize(run_dir, rows),
+                    "runs": choices,
+                    "state": summary,
                     "commandsEnabled": self.config.allow_commands,
                     "runningCommands": self._command_state(),
                 }

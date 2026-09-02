@@ -21,13 +21,13 @@
         </div>
       </header>
 
-      <section class="metrics" aria-label="Current run summary">
+      <section class="metrics" aria-label="Conductance run summary">
         <div class="metric">
           <span>Read</span>
           <strong id="lastCell">--</strong>
         </div>
         <div class="metric">
-          <span>uA</span>
+          <span>uS</span>
           <strong id="lastCurrent">--</strong>
         </div>
       </section>
@@ -38,11 +38,11 @@
             <div>
               <h2>1Kbit</h2>
             </div>
-            <div class="scale" aria-label="Heatmap color scale">
+            <div class="scale" aria-label="Logarithmic heatmap color scale">
               <span id="scaleMin">--</span>
-              <label>Min <input id="currentMinRange" type="range" min="0" max="150" step="5" value="0"><input id="currentMinInput" type="number" min="0" max="150" step="5" value="0"></label>
-              <span class="scale-bar"></span>
-              <label>Max <input id="currentMaxRange" type="range" min="0" max="150" step="5" value="100"><input id="currentMaxInput" type="number" min="0" max="150" step="5" value="100"></label>
+              <label>Min <input id="currentMinRange" type="range" min="0" max="300" step="10" value="0"><input id="currentMinInput" type="number" min="0" max="300" step="10" value="0"></label>
+              <span class="scale-bar">LOG</span>
+              <label>Max <input id="currentMaxRange" type="range" min="0" max="300" step="10" value="200"><input id="currentMaxInput" type="number" min="0" max="300" step="10" value="200"></label>
               <span id="scaleMax">--</span>
             </div>
           </div>
@@ -102,9 +102,9 @@
             <h2>Read Trace</h2>
           </div>
         </div>
-        <canvas id="chart" width="1200" height="220" aria-label="Current trend chart"></canvas>
+        <canvas id="chart" width="1200" height="220" aria-label="Conductance trend chart"></canvas>
       </section>
     </main>
-    <script src="/app.js?v=heatmap-limit-150-20260828"></script>
+    <script src="/app.js?v=conductance-setmark100-20260902"></script>
   </body>
 </html>

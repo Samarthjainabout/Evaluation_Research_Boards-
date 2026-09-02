@@ -8,9 +8,29 @@ import time
 from pathlib import Path
 
 try:
-    from .cell_api import RailVoltages, ScanDebugCellAPI, ScanDebugConfig, SweepConfig
+    from .cell_api import (
+        RESET_PROGRAM_VCC_SET_V,
+        RESET_PROGRAM_VCC_SET_SWEEP_V,
+        RESET_PROGRAM_VCC_WL_V,
+        SET_PROGRAM_VCC_SET_V,
+        SET_PROGRAM_VCC_WL_V,
+        RailVoltages,
+        ScanDebugCellAPI,
+        ScanDebugConfig,
+        SweepConfig,
+    )
 except ImportError:
-    from cell_api import RailVoltages, ScanDebugCellAPI, ScanDebugConfig, SweepConfig
+    from cell_api import (
+        RESET_PROGRAM_VCC_SET_V,
+        RESET_PROGRAM_VCC_SET_SWEEP_V,
+        RESET_PROGRAM_VCC_WL_V,
+        SET_PROGRAM_VCC_SET_V,
+        SET_PROGRAM_VCC_WL_V,
+        RailVoltages,
+        ScanDebugCellAPI,
+        ScanDebugConfig,
+        SweepConfig,
+    )
 
 
 def parse_sweep(text: str) -> tuple[float, ...]:
@@ -125,10 +145,13 @@ def main() -> int:
 
     parser.add_argument("--read-vcc-set", type=float, default=0.5)
     parser.add_argument("--read-vcc-wl-set", type=float, default=2.5)
-    parser.add_argument("--set-vcc-set", default="1.6,2.0,2.3,2.4,2.5,2.8,3.0")
-    parser.add_argument("--set-vcc-wl-set", default="0.5,0.6,0.7,0.8,0.9,1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0")
-    parser.add_argument("--reset-vcc-set", default="3.3,3.4,3.5,3.6,3.7")
-    parser.add_argument("--reset-vcc-wl-set", default="1.0,1.2,1.4,1.6,1.8,2.0,2.2,2.3")
+    parser.add_argument("--set-vcc-set", default=str(SET_PROGRAM_VCC_SET_V))
+    parser.add_argument("--set-vcc-wl-set", default=",".join(str(value) for value in SET_PROGRAM_VCC_WL_V))
+    parser.add_argument(
+        "--reset-vcc-set",
+        default=",".join(str(value) for value in RESET_PROGRAM_VCC_SET_SWEEP_V),
+    )
+    parser.add_argument("--reset-vcc-wl-set", default=",".join(str(value) for value in RESET_PROGRAM_VCC_WL_V))
     parser.add_argument("--set-threshold", type=float, default=70.0)
     parser.add_argument("--reset-threshold", type=float, default=5.0)
 

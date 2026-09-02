@@ -4,12 +4,15 @@ const state = {
   commandsEnabled: false,
   manualRun: false,
   currentMin_uA: 0,
-  currentMax_uA: 100,
+  currentMax_uA: 200,
 };
 
-const CURRENT_DISPLAY_SCALE = 1;
+const READ_VCC_SET_V = 0.5;
+const CURRENT_DISPLAY_SCALE = 1 / READ_VCC_SET_V;
+const SET_TRACE_MARKER_US = 100;
 const HEATMAP_SCALE_MIN_UA = 0;
-const HEATMAP_SCALE_MAX_UA = 150;
+const HEATMAP_SCALE_MAX_UA = 300;
+const LOG_DISPLAY_FLOOR_US = 0.2;
 
 const els = {
   runSelect: document.getElementById("runSelect"),
@@ -67,7 +70,10 @@ function cellKey(cell) {
 function colorFor(value, min, max) {
   if (!Number.isFinite(value)) return "#2a2d34";
   if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return "#4cc9a6";
-  const t = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  const logMin = Math.max(LOG_DISPLAY_FLOOR_US, min);
+  const logMax = Math.max(max, logMin * 10);
+  const clamped = Math.max(logMin, Math.min(logMax, value));
+  const t = (Math.log10(clamped) - Math.log10(logMin)) / (Math.log10(logMax) - Math.log10(logMin));
   const hue = 205 - t * 170;
   const light = 38 + t * 20;
   return `hsl(${hue}, 78%, ${light}%)`;
@@ -232,7 +238,15 @@ function formatApiEvent(row) {
       : hasCount
         ? ` (${row.cells})`
         : "";
-    return `${String(row.operation || "API").toUpperCase()}: ${formatApiMessage(row.message)}${count}`;
+    const targetConductance = Number.isFinite(row.target_conductance_uS)
+      ? row.target_conductance_uS
+      : Number.isFinite(row.target_uA)
+        ? scaleCurrent(row.target_uA)
+        : null;
+    const bitTarget = Number.isFinite(row.code) && Number.isFinite(targetConductance)
+      ? ` — code ${row.code} target ${formatScaledCurrent(targetConductance)} uS`
+      : "";
+    return `${String(row.operation || "API").toUpperCase()}: ${formatApiMessage(row.message)}${count}${bitTarget}`;
   }
   if (row.source === "active-command") {
     const cell = formatCell(row.cellAddress);
@@ -249,7 +263,7 @@ function formatApiEvent(row) {
     : "rails unknown";
   const status = row.ok ? "decoded OK" : "needs check";
   if (isRead(row)) {
-    return `Read ${cell}: ${formatCurrent(row.current_uA)} uA, ${packet}, ${status}`;
+    return `Read ${cell}: ${formatCurrent(row.current_uA)} uS, ${packet}, ${status}`;
   }
   return `${String(row.operation || "Program").toUpperCase()} pulse at ${cell}: ${rails}, ${packet}, ${status}`;
 }
@@ -275,7 +289,7 @@ function repaintHeatmap() {
     const value = scaleCurrent(item?.current_uA);
     node.style.background = colorFor(value, min, max);
     node.classList.toggle("active", node.dataset.key === state.heatmapActiveKey);
-    node.title = item ? `${formatCell(item.cellAddress)} ${formatScaledCurrent(value)} uA ${item.operation}` : `${node.dataset.key}: no read`;
+    node.title = item ? `${formatCell(item.cellAddress)} ${formatScaledCurrent(value)} uS ${item.operation}` : `${node.dataset.key}: no read`;
   }
   els.scaleMin.textContent = "";
   els.scaleMax.textContent = "";
@@ -306,11 +320,17 @@ function renderChart(summary) {
   const plotW = rect.width - padLeft - padRight;
   const xFor = (index) => padLeft + (plotW * index) / Math.max(1, pulses.length - 1);
 
-  const { min: currentMin, max: currentMax } = currentRange();
-  const currentSpan = currentMax === currentMin ? 1 : currentMax - currentMin;
+  const { min: requestedCurrentMin, max: requestedCurrentMax } = currentRange();
+  // Log plots cannot represent zero or negative conductance. Keep the
+  // user-selected range unchanged, but use the 0.2 uS display floor that
+  // corresponds to 0.1 uA at the fixed 0.5 V read voltage.
+  const currentMin = Math.max(LOG_DISPLAY_FLOOR_US, requestedCurrentMin);
+  const currentMax = Math.max(requestedCurrentMax, currentMin * 10);
+  const logCurrentMin = Math.log10(currentMin);
+  const logCurrentSpan = Math.log10(currentMax) - logCurrentMin;
   const yCurrent = (value) => {
     const clamped = Math.max(currentMin, Math.min(currentMax, value));
-    return padTop + topH - ((clamped - currentMin) / currentSpan) * topH;
+    return padTop + topH - ((Math.log10(clamped) - logCurrentMin) / logCurrentSpan) * topH;
   };
 
   const voltageMax = Math.max(2, ...pulses.map((item) => Math.abs(item.voltage || 0)));
@@ -319,7 +339,12 @@ function renderChart(summary) {
 
   drawPhaseBands(ctx, pulses, xFor, padLeft, plotW, bottomY, bottomH);
   drawAxes(ctx, padLeft, padTop, plotW, topH, bottomY, bottomH, rect.width, rect.height);
-  drawThresholds(ctx, padLeft, plotW, yCurrent, currentMin, currentMax, summary?.thresholds_uA || {});
+  drawLogCurrentGrid(ctx, padLeft, plotW, yCurrent, currentMin, currentMax);
+  const conductanceThresholds = Object.fromEntries(
+    Object.entries(summary?.thresholds_uA || {}).map(([key, value]) => [key, scaleCurrent(Number(value))])
+  );
+  conductanceThresholds.set = SET_TRACE_MARKER_US;
+  drawThresholds(ctx, padLeft, plotW, yCurrent, currentMin, currentMax, conductanceThresholds);
   drawTransition(ctx, pulses, xFor, padTop, topH, bottomY, bottomH);
   drawCurrentTrace(ctx, pulses, xFor, yCurrent);
   drawVoltageBars(ctx, pulses, xFor, yZero, yVoltage);
@@ -386,7 +411,7 @@ function drawAxes(ctx, left, top, width, topH, bottomY, bottomH, totalW, totalH)
   ctx.save();
   ctx.translate(14, top + topH / 2 + 34);
   ctx.rotate(-Math.PI / 2);
-  ctx.fillText("Current (uA)", 0, 0);
+  ctx.fillText("G (µS, log)", 0, 0);
   ctx.restore();
   ctx.save();
   ctx.translate(14, bottomY + bottomH / 2 + 28);
@@ -394,6 +419,41 @@ function drawAxes(ctx, left, top, width, topH, bottomY, bottomH, totalW, totalH)
   ctx.fillText("Voltage (V)", 0, 0);
   ctx.restore();
   ctx.fillText("Pulse", totalW / 2 - 12, totalH - 8);
+}
+
+function drawLogCurrentGrid(ctx, left, width, yCurrent, currentMin, currentMax) {
+  const firstDecade = Math.floor(Math.log10(currentMin));
+  const lastDecade = Math.ceil(Math.log10(currentMax));
+  const ticks = [];
+  for (let decade = firstDecade; decade <= lastDecade; decade += 1) {
+    const base = 10 ** decade;
+    for (const multiplier of [1, 2, 5]) {
+      const value = multiplier * base;
+      if (value >= currentMin - 1e-12 && value <= currentMax + 1e-12) {
+        ticks.push({ value, major: multiplier === 1 });
+      }
+    }
+  }
+
+  ctx.save();
+  ctx.font = "11px system-ui";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  for (const tick of ticks) {
+    const y = yCurrent(tick.value);
+    ctx.strokeStyle = tick.major ? "rgba(154, 164, 175, 0.34)" : "rgba(154, 164, 175, 0.16)";
+    ctx.lineWidth = tick.major ? 1 : 0.7;
+    ctx.setLineDash(tick.major ? [] : [2, 4]);
+    ctx.beginPath();
+    ctx.moveTo(left, y);
+    ctx.lineTo(left + width, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = tick.major ? "#d7dde3" : "#9aa4af";
+    const label = tick.value < 1 ? tick.value.toFixed(1) : Number(tick.value.toPrecision(3)).toString();
+    ctx.fillText(label, left - 8, y);
+  }
+  ctx.restore();
 }
 
 function drawThresholds(ctx, left, width, yCurrent, currentMin, currentMax, thresholds) {
@@ -419,7 +479,7 @@ function drawThresholds(ctx, left, width, yCurrent, currentMin, currentMax, thre
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.font = "12px system-ui";
-    const text = `${label} ${rawThreshold.toFixed(2)} uA`;
+    const text = `${label} ${threshold.toFixed(2)} uS`;
     const textW = ctx.measureText(text).width;
     const textX = left + width - textW - 8;
     ctx.fillStyle = "rgba(17, 19, 24, 0.88)";
@@ -532,8 +592,6 @@ function drawLabels(ctx, pulses, currentMin, currentMax, voltageMax, left, top, 
   ctx.font = "12px system-ui";
   ctx.fillStyle = "#9aa4af";
   ctx.textAlign = "right";
-  ctx.fillText(`${currentMax} uA`, left - 8, top + 5);
-  ctx.fillText(`${currentMin} uA`, left - 8, top + topH - 4);
   ctx.fillText(`+${voltageMax.toFixed(1)}V`, left - 8, bottomY + 11);
   ctx.fillText("0V", left - 8, bottomY + bottomH / 2 + 4);
   ctx.fillText(`-${voltageMax.toFixed(1)}V`, left - 8, bottomY + bottomH - 4);
@@ -546,21 +604,32 @@ function drawLabels(ctx, pulses, currentMin, currentMax, voltageMax, left, top, 
   ctx.fillText("RESET", left + 376, totalH - 36);
 }
 
+let refreshInFlight = false;
+
 async function refresh() {
+  if (refreshInFlight) return;
+  refreshInFlight = true;
   const query = state.manualRun && state.selectedRun ? `?run=${encodeURIComponent(state.selectedRun)}` : "";
-  const response = await fetch(`/api/state${query}`, { cache: "no-store" });
-  const data = await response.json();
-  state.lastSummary = data.state || null;
-  state.currentRunId = data.state?.run?.id || "";
-  state.arrayResume = data.state?.arrayResume || null;
-  state.sweepResume = data.state?.sweepResume || null;
-  renderRuns(data.runs || [], data.state?.run?.id || "");
-  state.commandsEnabled = Boolean(data.commandsEnabled);
-  state.lastCommands = data.runningCommands || [];
-  renderCommandState(data.runningCommands || []);
-  renderMetrics(data.state);
-  renderHeatmap(data.state);
-  renderChart(data.state);
+  try {
+    const response = await fetch(`/api/state${query}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(`GUI state request failed (${response.status})`);
+    const data = await response.json();
+    state.lastSummary = data.state || null;
+    state.currentRunId = data.state?.run?.id || "";
+    state.arrayResume = data.state?.arrayResume || null;
+    state.sweepResume = data.state?.sweepResume || null;
+    renderRuns(data.runs || [], data.state?.run?.id || "");
+    state.commandsEnabled = Boolean(data.commandsEnabled);
+    state.lastCommands = data.runningCommands || [];
+    renderCommandState(data.runningCommands || []);
+    renderMetrics(data.state);
+    renderHeatmap(data.state);
+    renderChart(data.state);
+  } catch (error) {
+    els.commandNote.textContent = `GUI refresh error: ${error.message}`;
+  } finally {
+    refreshInFlight = false;
+  }
 }
 
 function renderCommandState(commands) {
@@ -752,4 +821,4 @@ els.commandForm.addEventListener("submit", async (event) => {
 ensureGrid();
 syncCurrentRangeControls();
 refresh();
-setInterval(refresh, 1500);
+setInterval(refresh, 2500);

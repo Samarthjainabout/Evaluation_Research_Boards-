@@ -7,7 +7,7 @@ if {$argc < 2} {
 set bit_file [file normalize [file join $script_dir [lindex $argv 0]]]
 set probes_file [file normalize [file join $script_dir [lindex $argv 1]]]
 set request_file [file join $script_dir "runtime_vio_request.txt"]
-set response_file [file join $script_dir "runtime_vio_response.txt"]
+set invalid_response_file [file join $script_dir "runtime_vio_response.invalid.txt"]
 set heartbeat_file [file join $script_dir "runtime_vio_daemon.heartbeat"]
 set stop_file [file join $script_dir "runtime_vio_daemon.stop"]
 
@@ -39,7 +39,7 @@ if {![file exists $probes_file]} {
     exit 2
 }
 
-foreach stale [list $request_file $response_file $heartbeat_file $stop_file] {
+foreach stale [concat [list $request_file $heartbeat_file $stop_file] [glob -nocomplain [file join $script_dir "runtime_vio_response.*.txt"]]] {
     catch {file delete -force $stale}
 }
 
@@ -127,6 +127,10 @@ while {![file exists $stop_file]} {
         close $handle
         if {[regexp {^([A-Za-z0-9_-]+)[ \t]+(0x)?([0-9A-Fa-f]{16})$} $request -> request_id ignored command_hex]} {
             if {$request_id ne $last_request_id} {
+                # A response path unique to this request prevents the Windows
+                # PowerShell poller from holding open a file that the daemon
+                # must replace for the next command.
+                set response_file [file join $script_dir "runtime_vio_response.$request_id.txt"]
                 set started_ms [clock milliseconds]
                 set rc [catch {
                     set command_hex [normalized_hex64 $command_hex "runtime command"]
@@ -176,7 +180,7 @@ while {![file exists $stop_file]} {
                 catch {file delete -force $request_file}
             }
         } else {
-            write_atomic $response_file "INVALID ERROR malformed_request"
+            write_atomic $invalid_response_file "INVALID ERROR malformed_request"
             catch {file delete -force $request_file}
         }
     }

@@ -28,6 +28,27 @@ DEFAULT_SUMMARIZER = ROOT / "api_v1/tools/summarize_capture.py"
 FPGA_BITSTREAM_DIR = ROOT / "api_v1/prerequisites/fpga_zynq7020/bitstreams"
 FPGA_RUNTIME_BITSTREAM = "caravel_scan_debug_runtime_dac81416_v2.bit"
 FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_v2.ltx"
+
+# Five-bit programming projection from set_reset_vcc_wl_projection_0_to_31.xlsx.
+# Set keeps Vcc_set fixed. Reset uses an outer Vcc_set sweep; the complete
+# DAC3/Vcc_wl_set projection runs inside each Vcc_set value.
+SET_PROGRAM_VCC_SET_V = 2.5
+SET_PROGRAM_VCC_WL_V = (
+    0.44, 0.50, 0.56, 0.63, 0.69, 0.75, 0.81, 0.87,
+    0.94, 1.00, 1.06, 1.12, 1.19, 1.25, 1.31, 1.37,
+    1.43, 1.50, 1.56, 1.62, 1.68, 1.75, 1.81, 1.87,
+    1.93, 1.99, 2.06, 2.12, 2.18, 2.24, 2.31, 2.37,
+)
+RESET_PROGRAM_VCC_SET_V = 3.5
+RESET_PROGRAM_VCC_SET_SWEEP_V = (
+    2.3, 2.7, 3.1, 3.5,
+)
+RESET_PROGRAM_VCC_WL_V = (
+    0.94, 1.01, 1.07, 1.13, 1.19, 1.26, 1.32, 1.38,
+    1.44, 1.51, 1.57, 1.63, 1.69, 1.76, 1.82, 1.88,
+    1.94, 2.01, 2.07, 2.13, 2.19, 2.26, 2.32, 2.38,
+    2.44, 2.50, 2.57, 2.63, 2.69, 2.75, 2.82, 2.88,
+)
 MANIFEST_FIELDS = [
     "index",
     "stage",
@@ -122,33 +143,16 @@ class ScanDebugConfig:
     read_rails: RailVoltages = field(default_factory=lambda: RailVoltages(0.5, 2.5))
     set_sweep: SweepConfig = field(
         default_factory=lambda: SweepConfig.from_ranges(
-            vcc_set_v=(1.6, 2.0, 2.3, 2.4, 2.5, 2.8, 3.0),
-            vcc_wl_set_v=(
-                0.5,
-                0.6,
-                0.7,
-                0.8,
-                0.9,
-                1.0,
-                1.1,
-                1.2,
-                1.3,
-                1.4,
-                1.5,
-                1.6,
-                1.7,
-                1.8,
-                1.9,
-                2.0,
-            ),
+            vcc_set_v=(SET_PROGRAM_VCC_SET_V,),
+            vcc_wl_set_v=SET_PROGRAM_VCC_WL_V,
             threshold_uA=70.0,
             direction="above",
         )
     )
     reset_sweep: SweepConfig = field(
         default_factory=lambda: SweepConfig.from_ranges(
-            vcc_set_v=(3.3, 3.4, 3.5, 3.6, 3.7),
-            vcc_wl_set_v=(1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.3),
+            vcc_set_v=RESET_PROGRAM_VCC_SET_SWEEP_V,
+            vcc_wl_set_v=RESET_PROGRAM_VCC_WL_V,
             threshold_uA=5.0,
             direction="below",
         )
@@ -219,6 +223,8 @@ class ScanDebugConfig:
     burst_after_trigger_seconds: float = 0.000028
     burst_trim_data_seconds: float = 0.000003
     burst_capture_timeout_seconds: float = 420.0
+    saleae_arm_timeout_seconds: float = 30.0
+    saleae_capture_completion_timeout_seconds: float = 30.0
 
 
 @dataclass
@@ -273,7 +279,14 @@ class CommandRunner:
             if log:
                 log.write_text(f"DRY_RUN {text}\n")
             return subprocess.CompletedProcess(cmd, 0, f"DRY_RUN {text}\n", "")
-        proc = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout_s)
+        proc = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=timeout_s,
+        )
         if log:
             log.write_text(proc.stdout)
         return proc
@@ -1706,9 +1719,57 @@ exit
         for attempt in range(1, attempts + 1):
             attempt_log = capture_log if attempts == 1 else self.config.run_dir / f"capture_{index}_{kind}_attempt{attempt}.log"
             capture_proc = self._popen_saleae(capture_cmd)
-            time.sleep(2.0)
-            program_rc = self._program_fpga(bitstream, packet=packet, rails=rails, packet_count=1)
-            output, _ = capture_proc.communicate()
+            output_lines: list[str] = []
+            armed = threading.Event()
+            reader_done = threading.Event()
+
+            def drain_capture_output() -> None:
+                try:
+                    if capture_proc.stdout is not None:
+                        for line in capture_proc.stdout:
+                            output_lines.append(line)
+                            if line.startswith("SALEAE_ARMED"):
+                                armed.set()
+                finally:
+                    reader_done.set()
+
+            reader = threading.Thread(target=drain_capture_output, daemon=True)
+            reader.start()
+            arm_deadline = time.monotonic() + self.config.saleae_arm_timeout_seconds
+            while not armed.is_set() and not reader_done.is_set() and time.monotonic() < arm_deadline:
+                armed.wait(timeout=0.1)
+
+            program_rc = -1
+            if armed.is_set():
+                program_rc = self._program_fpga(bitstream, packet=packet, rails=rails, packet_count=1)
+                try:
+                    capture_proc.wait(timeout=self.config.saleae_capture_completion_timeout_seconds)
+                except subprocess.TimeoutExpired:
+                    output_lines.append(
+                        "SALEAE_CAPTURE_COMPLETION_TIMEOUT: capture remained active after the FPGA command; "
+                        "the expected trigger may have been missed.\n"
+                    )
+                    capture_proc.terminate()
+                    try:
+                        capture_proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        capture_proc.kill()
+                        capture_proc.wait(timeout=5)
+            else:
+                output_lines.append(
+                    "SALEAE_ARM_TIMEOUT: Logic 2 did not confirm that the physical capture was armed; "
+                    "the FPGA command was not sent.\n"
+                )
+                if capture_proc.poll() is None:
+                    capture_proc.terminate()
+                    try:
+                        capture_proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        capture_proc.kill()
+                        capture_proc.wait(timeout=5)
+
+            reader.join(timeout=5)
+            output = "".join(output_lines)
             attempt_log.write_text(output or "")
             remote_output_dir = ""
             for line in (output or "").splitlines():
@@ -1723,18 +1784,49 @@ exit
                 f"attempt={attempt} capture_rc={capture_proc.returncode} program_rc={program_rc} "
                 f"remote_output_dir={remote_output_dir or '<missing>'} log={attempt_log}"
             )
-            if self._dac_teensy_needs_reflash(output or ""):
+            if self._remote_transport_needs_retry(output or ""):
+                summary = "remote SSH/VM transport unavailable"
+                failures.append(f"attempt={attempt} transport_error={summary}")
+                self._record_recovery_event(
+                    component="saleae_transport",
+                    index=index,
+                    kind=kind,
+                    attempt=attempt,
+                    error=summary,
+                    action="reconnect_and_retry",
+                )
+            elif self._dac_teensy_needs_reflash(output or ""):
                 failures.append(f"attempt={attempt} dac_teensy_error=Serial write timeout")
                 reflash_log = self._reflash_dac_teensy(index, kind, attempt)
                 failures.append(f"dac_teensy_reflash_after_attempt={attempt} log={reflash_log}")
             elif self._usb_needs_recovery(output or ""):
-                failures.append(f"attempt={attempt} usb_error={self._usb_error_summary(output or '')}")
+                summary = self._usb_error_summary(output or "")
+                failures.append(f"attempt={attempt} usb_error={summary}")
                 recovery_log = self._recover_saleae_usb(index, kind, attempt)
                 failures.append(f"usb_recovery_after_attempt={attempt} log={recovery_log}")
+                self._record_recovery_event(
+                    component="saleae_usb",
+                    index=index,
+                    kind=kind,
+                    attempt=attempt,
+                    error=summary,
+                    action="wait_for_usb_and_restart_logic",
+                    recovery_log=str(recovery_log),
+                )
             elif self._saleae_needs_restart(output or ""):
-                failures.append(f"attempt={attempt} saleae_error={self._saleae_error_summary(output or '')}")
+                summary = self._saleae_error_summary(output or "")
+                failures.append(f"attempt={attempt} saleae_error={summary}")
                 restart_log = self._restart_saleae_automation(index, kind, attempt)
                 failures.append(f"saleae_restart_after_attempt={attempt} log={restart_log}")
+                self._record_recovery_event(
+                    component="saleae_logic",
+                    index=index,
+                    kind=kind,
+                    attempt=attempt,
+                    error=summary,
+                    action="restart_logic",
+                    recovery_log=str(restart_log),
+                )
             if attempt < attempts:
                 time.sleep(2.0)
 
@@ -1789,11 +1881,31 @@ exit
             "/dev/serial/by-id",
             "No Saleae device found",
             "DeviceError: Error interacting with device during capture: ReadTimeout",
+            "SALEAE_ARM_TIMEOUT",
+            "SALEAE_CAPTURE_COMPLETION_TIMEOUT",
             "LIBUSB_ERROR_BUSY",
             "xHCI host controller not responding",
             "HC died; cleaning up",
         )
         return any(marker in output for marker in recovery_markers)
+
+    @staticmethod
+    def _remote_transport_needs_retry(output: str) -> bool:
+        markers = (
+            "ssh: connect to host",
+            "Connection timed out during banner exchange",
+            "Connection to ",
+            "No route to host",
+            "Network is unreachable",
+            "Connection reset by peer",
+        )
+        return any(marker in output for marker in markers)
+
+    def _record_recovery_event(self, **event: object) -> None:
+        event.setdefault("time", time.time())
+        path = self.config.run_dir / "hardware_recovery.jsonl"
+        with path.open("a") as handle:
+            handle.write(json.dumps(event, sort_keys=True) + "\n")
 
     def _dac_teensy_needs_reflash(self, output: str) -> bool:
         write_timeout = (
@@ -1827,26 +1939,47 @@ echo "BEFORE_LSUSB"
 lsusb || true
 echo "BEFORE_SERIAL"
 ls -l /dev/serial/by-id/ 2>&1 || true
-echo "RESET_XHCI {self.config.saleae_usb_controller_pci}"
-{sudo} sh -c 'echo {pci} > /sys/bus/pci/drivers/xhci_hcd/unbind' || true
-sleep 3
-{sudo} sh -c 'echo {pci} > /sys/bus/pci/drivers/xhci_hcd/bind' || true
-sleep 8
+VIRT=$(systemd-detect-virt 2>/dev/null || true)
+if [ "$VIRT" = "oracle" ]; then
+  echo "VIRTUALBOX_USB_PASSTHROUGH: waiting for host attachment; guest controller reset skipped"
+else
+  echo "RESET_XHCI {self.config.saleae_usb_controller_pci}"
+  {sudo} sh -c 'echo {pci} > /sys/bus/pci/drivers/xhci_hcd/unbind' || true
+  sleep 3
+  {sudo} sh -c 'echo {pci} > /sys/bus/pci/drivers/xhci_hcd/bind' || true
+  sleep 8
+fi
+echo "WAIT_FOR_SALEAE_USB"
+i=0
+while ! lsusb -d 21a9:1006 >/dev/null 2>&1 && [ $i -lt 12 ]; do
+  i=$((i+1))
+  echo "saleae_usb_absent wait=$i/12"
+  sleep 5
+done
 echo "AFTER_LSUSB"
 lsusb || true
 echo "AFTER_SERIAL"
 ls -l /dev/serial/by-id/ 2>&1 || true
-echo "RESTART_LOGIC"
+echo "FORCE_RESTART_LOGIC"
+pkill -TERM -f '[L]ogic-linux-x64.AppImage' 2>/dev/null || true
+pkill -TERM -f '[L]ogic.bin' 2>/dev/null || true
+sleep 3
+pkill -KILL -f '[L]ogic-linux-x64.AppImage' 2>/dev/null || true
+pkill -KILL -f '[L]ogic.bin' 2>/dev/null || true
+sleep 2
 cd {self._sh_quote(self.config.saleae_dir)} && {self.config.saleae_restart_script}
 sleep {self.config.saleae_restart_wait_seconds}
 echo "PORT_10430"
 ss -ltnp 2>/dev/null | grep 10430 || true
 echo "SALEAE_AUTOMATION_TEST"
-.venv/bin/python - <<'PY' || true
+.venv/bin/python - <<'PY'
 from saleae import automation
 with automation.Manager.connect(port=10430, connect_timeout_seconds=5) as manager:
     print(manager.get_app_info())
-    print([(d.device_type, d.device_id) for d in manager.get_devices()])
+    devices = manager.get_devices(include_simulation_devices=False)
+    print([(d.device_type, d.device_id) for d in devices])
+    if not devices:
+        raise RuntimeError("Logic automation is listening but no physical Saleae device is attached")
 PY
 """
         if self.config.saleae_host:
@@ -1914,18 +2047,27 @@ PY
             "pkill -KILL -f '[r]un_full_array_burst_capture.py' 2>/dev/null || true; "
             "pkill -KILL -f '[L]ogic-linux-x64.AppImage' 2>/dev/null || true; "
             "pkill -KILL -f '[L]ogic.bin' 2>/dev/null || true; "
-            f"sleep 2; {self.config.saleae_restart_script}"
+            f"sleep 2; {self.config.saleae_restart_script}; "
+            f"sleep {self.config.saleae_restart_wait_seconds}; "
+            ".venv/bin/python - <<'PY'\n"
+            "from saleae import automation\n"
+            "with automation.Manager.connect(port=10430, connect_timeout_seconds=5) as manager:\n"
+            "    devices = manager.get_devices(include_simulation_devices=False)\n"
+            "    print([(d.device_type, d.device_id) for d in devices])\n"
+            "    if not devices:\n"
+            "        raise RuntimeError('Logic automation is listening but no physical Saleae device is attached')\n"
+            "PY"
         )
         if self.config.saleae_host:
             proc = self.runner.ssh(
                 self.config.saleae_host,
-                f"cd {self.config.saleae_dir} && {command}; sleep {self.config.saleae_restart_wait_seconds}; ss -ltnp | grep 10430 || true",
+                f"cd {self.config.saleae_dir} && {command}",
                 timeout_s=60,
             )
         else:
             proc = self.runner.run(
                 self._local_shell_command(
-                    f"cd {self.config.saleae_dir} && {command}; sleep {self.config.saleae_restart_wait_seconds}; ss -ltnp | grep 10430 || true"
+                    f"cd {self.config.saleae_dir} && {command}"
                 ),
                 timeout_s=60,
             )
@@ -1968,18 +2110,19 @@ PY
 
         self._ensure_remote_fpga_sources()
         timeout_s = max(10.0, self.config.runtime_daemon_start_timeout_seconds)
-        timeout_ms = round(timeout_s * 1000)
-        cleanup = (
-            "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'vivado.exe' -and $_.CommandLine -like '*runtime_vio_daemon.tcl*' } | "
-            "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; "
-            "Remove-Item -Force runtime_vio_daemon.heartbeat,runtime_vio_daemon.stop,runtime_vio_request.txt,"
-            "runtime_vio_response.txt -ErrorAction SilentlyContinue"
+        # Keep recovery commands separate. Compound CMD commands can leave the
+        # Windows OpenSSH session open after a forced disconnect.
+        self._run_zynq_cmd("taskkill /IM vivado.exe /F", timeout_s=15)
+        self._run_zynq_cmd(
+            "del /Q runtime_vio_daemon.heartbeat runtime_vio_daemon.stop "
+            "runtime_vio_request.txt runtime_vio_response.*.txt",
+            timeout_s=15,
         )
-        self._run_zynq_powershell(cleanup, timeout_s=15)
 
+        remote_daemon_log = f"runtime_vio_daemon.{uuid.uuid4().hex}.log"
         daemon_command = (
             f"& '{self.config.vivado_cmd}' -mode batch -source runtime_vio_daemon.tcl "
-            f"-tclargs '{bitstream}' '{FPGA_RUNTIME_PROBES}' *> runtime_vio_daemon.log; "
+            f"-tclargs '{bitstream}' '{FPGA_RUNTIME_PROBES}' *> '{remote_daemon_log}'; "
             "$rc=$LASTEXITCODE; Write-Output ('RUNTIME_VIO_DAEMON_EXIT='+$rc); exit $rc"
         )
         encoded = base64.b64encode(daemon_command.encode("utf-16le")).decode()
@@ -1989,6 +2132,7 @@ PY
         if self.config.zynq_host:
             self._runtime_daemon_process = subprocess.Popen(
                 ["ssh", "-o", "ConnectTimeout=15", self.config.zynq_host, full_command],
+                stdin=subprocess.DEVNULL,
                 text=True,
                 stdout=self._runtime_daemon_log_handle,
                 stderr=subprocess.STDOUT,
@@ -1996,23 +2140,25 @@ PY
         else:
             self._runtime_daemon_process = subprocess.Popen(
                 self._local_shell_command(full_command),
+                stdin=subprocess.DEVNULL,
                 text=True,
                 stdout=self._runtime_daemon_log_handle,
                 stderr=subprocess.STDOUT,
             )
 
-        command = (
-            "$heartbeat='runtime_vio_daemon.heartbeat'; "
-            f"$deadline=(Get-Date).AddMilliseconds({timeout_ms}); $fresh=$false; "
-            "do { Start-Sleep -Milliseconds 100; "
-            "$fresh=(Test-Path $heartbeat) -and (((Get-Date)-(Get-Item $heartbeat).LastWriteTime).TotalSeconds -lt 5) } "
-            "while (-not $fresh -and (Get-Date) -lt $deadline); "
-            "if ($fresh) { Write-Output 'RUNTIME_VIO_DAEMON_READY=1'; exit 0 }; "
-            "Write-Output 'RUNTIME_VIO_DAEMON_READY=0'; "
-            "Get-Content runtime_vio_daemon.log -Tail 40 -ErrorAction SilentlyContinue; exit 1"
-        )
-        proc = self._run_zynq_powershell(command, timeout_s=round(timeout_s + 10))
-        if proc.returncode != 0 or "RUNTIME_VIO_DAEMON_READY=1" not in (proc.stdout or ""):
+        deadline = time.time() + timeout_s
+        ready = False
+        while time.time() < deadline:
+            try:
+                proc = self._run_zynq_cmd("dir /B runtime_vio_daemon.heartbeat", timeout_s=30)
+            except subprocess.TimeoutExpired:
+                continue
+            if proc.returncode == 0 and "runtime_vio_daemon.heartbeat" in (proc.stdout or ""):
+                ready = True
+                break
+            time.sleep(1.0)
+        if not ready:
+            proc = self._run_zynq_cmd(f"type {remote_daemon_log}", timeout_s=10)
             if self._runtime_daemon_process and self._runtime_daemon_process.poll() is None:
                 self._runtime_daemon_process.terminate()
             if self._runtime_daemon_log_handle:
@@ -2024,46 +2170,58 @@ PY
         self._ensure_runtime_vio_daemon()
         request_id = uuid.uuid4().hex
         timeout_s = max(5.0, self.config.runtime_command_timeout_seconds)
-        timeout_ms = round(timeout_s * 1000)
-        command = (
-            f"$id='{request_id}'; $payload='{payload}'; "
-            "$request='runtime_vio_request.txt'; $response='runtime_vio_response.txt'; "
-            "$tmp=('runtime_vio_request.'+$id+'.tmp'); "
-            "[IO.File]::WriteAllText($tmp, ($id+' '+$payload), [Text.Encoding]::ASCII); "
-            "Move-Item -Force $tmp $request; "
-            f"$deadline=(Get-Date).AddMilliseconds({timeout_ms}); $reply=''; "
-            "do { Start-Sleep -Milliseconds 10; if (Test-Path $response) { "
-            "$candidate=[IO.File]::ReadAllText($response).Trim(); "
-            "if ($candidate.StartsWith($id+' ')) { $reply=$candidate } } } "
-            "while (-not $reply -and (Get-Date) -lt $deadline); "
-            "if (-not $reply) { Write-Output ('RUNTIME_VIO_TIMEOUT id='+$id); exit 2 }; "
-            "Write-Output $reply; if ($reply.StartsWith($id+' OK ')) { exit 0 } else { exit 1 }"
-        )
-        proc = self._run_zynq_powershell(command, timeout_s=round(timeout_s + 10))
-        if proc.returncode != 0:
+        response_file = f"runtime_vio_response.{request_id}.txt"
+        temp_file = f"runtime_vio_request.{request_id}.tmp"
+        try:
+            write = self._run_zynq_cmd(f"echo {request_id} {payload}>{temp_file}", timeout_s=30)
+        except subprocess.TimeoutExpired:
+            # The CMD redirection completes before Windows OpenSSH occasionally
+            # delays closing the channel. The following move verifies the file.
+            write = subprocess.CompletedProcess([], 0, "", "")
+        try:
+            move = self._run_zynq_cmd(f"move /Y {temp_file} runtime_vio_request.txt", timeout_s=30)
+        except subprocess.TimeoutExpired:
+            # Continue to the unique response poll, which is the authoritative
+            # acknowledgement that the move and FPGA command completed.
+            move = subprocess.CompletedProcess([], 0, "", "")
+        if write.returncode != 0 or move.returncode != 0:
             self._runtime_daemon_ready = False
-            raise RuntimeError(proc.stdout or f"persistent FPGA runtime command {request_id} failed")
-        if f"{request_id} OK " not in (proc.stdout or ""):
+            raise RuntimeError(write.stdout or move.stdout or f"could not submit runtime command {request_id}")
+        deadline = time.time() + timeout_s
+        reply = ""
+        while time.time() < deadline:
+            try:
+                exists = self._run_zynq_cmd(f"dir /B {response_file}", timeout_s=10)
+            except subprocess.TimeoutExpired:
+                continue
+            if exists.returncode == 0 and response_file in (exists.stdout or ""):
+                response = self._run_zynq_cmd(f"type {response_file}", timeout_s=10)
+                reply = (response.stdout or "").strip()
+                break
+            time.sleep(0.25)
+        try:
+            self._run_zynq_cmd(f"del /Q {response_file}", timeout_s=10)
+        except subprocess.TimeoutExpired:
+            pass
+        if f"{request_id} OK " not in reply:
             self._runtime_daemon_ready = False
-            raise RuntimeError(f"invalid persistent FPGA runtime response: {proc.stdout}")
+            raise RuntimeError(reply or f"persistent FPGA runtime command {request_id} timed out")
         return 0
 
     def _stop_runtime_vio_daemon(self) -> None:
         self._runtime_daemon_ready = False
         if self.config.dry_run or self.config.zynq_os != "windows":
             return
-        command = (
-            "if (Test-Path runtime_vio_daemon.heartbeat) { "
-            "[IO.File]::WriteAllText('runtime_vio_daemon.stop','stop'); "
-            "$deadline=(Get-Date).AddSeconds(10); "
-            "while ((Test-Path runtime_vio_daemon.heartbeat) -and (Get-Date) -lt $deadline) { "
-            "Start-Sleep -Milliseconds 100 } }; "
-            "if (Test-Path runtime_vio_daemon.heartbeat) { "
-            "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'vivado.exe' -and $_.CommandLine -like '*runtime_vio_daemon.tcl*' } | "
-            "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; "
-            "Remove-Item -Force runtime_vio_daemon.heartbeat -ErrorAction SilentlyContinue }"
-        )
-        self._run_zynq_powershell(command, timeout_s=20)
+        self._run_zynq_cmd("echo stop>runtime_vio_daemon.stop", timeout_s=10)
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            exists = self._run_zynq_cmd("dir /B runtime_vio_daemon.heartbeat", timeout_s=10)
+            if exists.returncode != 0:
+                break
+            time.sleep(0.5)
+        else:
+            self._run_zynq_cmd("taskkill /IM vivado.exe /F", timeout_s=15)
+        self._run_zynq_cmd("del /Q runtime_vio_daemon.heartbeat runtime_vio_daemon.stop", timeout_s=10)
         if self._runtime_daemon_process is not None:
             try:
                 self._runtime_daemon_process.wait(timeout=5)
@@ -2370,6 +2528,11 @@ PY
             return
 
         encoded = base64.b64encode(data).decode()
+        # Encoded PowerShell commands hit Windows' command-line limit well
+        # before a source file is large enough for the old 100 kB fallback.
+        if self.config.zynq_host and self.config.zynq_os == "windows" and len(encoded) > 20_000:
+            self._write_remote_binary_chunked(filename, data)
+            return
         if self.config.zynq_os == "windows":
             cmd = f"$b='{encoded}'; [IO.File]::WriteAllBytes('{filename}', [Convert]::FromBase64String($b))"
             proc = self._run_zynq_powershell(cmd, timeout_s=180)
@@ -2496,6 +2659,38 @@ PY
     def _run_zynq_powershell(self, command: str, timeout_s: int | None = None) -> subprocess.CompletedProcess[str]:
         encoded = base64.b64encode(command.encode("utf-16le")).decode()
         return self._run_zynq(f"powershell -NoProfile -EncodedCommand {encoded}", timeout_s=timeout_s)
+
+    def _run_zynq_cmd(self, command: str, timeout_s: int | None = None) -> subprocess.CompletedProcess[str]:
+        """Run native CMD syntax even when OpenSSH's configured shell is PowerShell."""
+
+        windows_dir = self.config.zynq_dir.replace("/", "\\")
+        if self.config.zynq_host:
+            if self.config.zynq_password:
+                full_command = f'cmd /D /S /C "cd /D {windows_dir} && {command}"'
+                return self.runner.ssh_with_expect_password(
+                    self.config.zynq_host,
+                    self.config.zynq_password,
+                    full_command,
+                    timeout_s=timeout_s,
+                )
+            # Pass CMD and its arguments separately. Sending the entire command
+            # as one OpenSSH argument can leave cmd.exe in interactive mode.
+            return self.runner.run(
+                [
+                    "ssh",
+                    "-o",
+                    "ConnectTimeout=15",
+                    self.config.zynq_host,
+                    "cmd",
+                    "/D",
+                    "/S",
+                    "/C",
+                    f'"cd /D {windows_dir} && {command} & exit"',
+                ],
+                timeout_s=timeout_s,
+            )
+        full_command = f'cmd /D /S /C "cd /D {windows_dir} && {command}"'
+        return self.runner.run(self._local_shell_command(full_command), timeout_s=timeout_s)
 
     def _run_zynq(self, command: str, timeout_s: int | None = None) -> subprocess.CompletedProcess[str]:
         full_command = f"cd {self.config.zynq_dir} && {command}"
