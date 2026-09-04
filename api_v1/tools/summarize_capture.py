@@ -134,6 +134,14 @@ def current_window(analog_csv: Path, start_s, stop_s):
     return mean(set_values), mean(reset_values), len(set_values)
 
 
+def validate_measurement_window(decoded, set_mean_uA, reset_mean_uA, samples):
+    start, stop = decoded.get("dr_rise_s"), decoded.get("tm_fall_s")
+    if start is None or stop is None or not math.isfinite(start) or not math.isfinite(stop) or stop <= start:
+        raise ValueError("Invalid measurement window: TM fall must follow ScanInDR rise")
+    if samples < 1 or not math.isfinite(set_mean_uA) or not math.isfinite(reset_mean_uA):
+        raise ValueError("Invalid measurement window: missing or non-finite analog samples")
+
+
 def latest_adc(adc_csv: Path):
     if not adc_csv.exists():
         return {}
@@ -159,7 +167,7 @@ def append_row(manifest: Path, row: dict):
             "index", "phase", "vcc_set_V", "vcc_wl_set_V", "packet", "bits_lsb_first",
             "remote_output_dir", "local_output_dir", "ok", "decoded_packet",
             "la_set_window_mean_uA", "la_reset_window_mean_uA",
-            "adc_read_uA", "adc_set_uA", "adc_reset_uA", "error",
+            "adc_read_uA", "adc_set_uA", "adc_reset_uA", "error", "capture_device_id", "capture_analog_sample_rate",
         ])
         if write_header:
             writer.writeheader()
@@ -190,6 +198,7 @@ def main() -> int:
             decoded["dr_rise_s"],
             decoded["tm_fall_s"],
         )
+        validate_measurement_window(decoded, set_mean_uA, reset_mean_uA, samples)
         adc = latest_adc(local_dir / "adc_monitor.csv")
         ok = decoded["decoded_packet"] == expected_packet
         if not ok:
@@ -203,6 +212,8 @@ def main() -> int:
         ok = False
         error = f"{type(exc).__name__}: {exc}"
 
+    metadata_path = local_dir / "analysis.json"
+    metadata = json.loads(metadata_path.read_text()) if metadata_path.exists() else {}
     summary = {
         "index": args.index,
         "phase": args.phase,
@@ -220,6 +231,8 @@ def main() -> int:
         "adc_set_uA": adc.get("adc_set_uA", ""),
         "adc_reset_uA": adc.get("adc_reset_uA", ""),
         "error": error,
+        "capture_device_id": metadata.get("device_id", ""),
+        "capture_analog_sample_rate": metadata.get("analog_sample_rate", ""),
     }
     append_row(args.manifest, summary)
     (local_dir / "capture_summary.json").write_text(json.dumps({**summary, "decoded": decoded, "samples_in_window": samples}, indent=2))

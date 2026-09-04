@@ -1,0 +1,23 @@
+{
+  "id": "A25E1BAA6577FA4D_A12-A13_0p5V_20260903",
+  "device_id": "A25E1BAA6577FA4D",
+  "channels": [12, 13],
+  "read_voltage_V": 0.5,
+  "shunt_ohms": 470.0,
+  "noise_allowance_uA": 3.0,
+  "noise_allowance_basis": "Conservative engineering allowance: rounded up from twice the largest 1.38 uA held-out zero-input residual. Not a statistical confidence interval. Signed near-zero readings are retained; target qualification uses the adverse bound.",
+  "offset_mV_by_sample_rate": {
+    "31250": -10.407759552152825,
+    "3125000": -10.59441102606893,
+    "6250000": -10.535014738731691
+  },
+  "method": "Mean of three independent same-node captures at the nominal 0.5 V read operating point; subtract signed differential offset, without clipping negative results.",
+  "source_run": "vcc_set_A12_A13_20260903_150822",
+  "validation_run": "calibrated_read_validation_r00c00_20260903_151403",
+  "scope": "A12-A13 READ measurements only; not SET/RESET pulse currents or other read voltages. Revalidate after changing probes, instrument, or measurement setup.",
+  "repeat_holdout_residual_uA_by_sample_rate": {
+    "31250": 1.1400026864881876,
+    "3125000": -1.2048431840682194,
+    "6250000": 1.3775237714574875
+  }
+}

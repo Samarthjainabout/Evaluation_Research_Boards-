@@ -187,6 +187,80 @@ class CellQualificationTests(unittest.TestCase):
         self.assertEqual(operation, "set")
         self.assertEqual(rails, RailVoltages(2.5, 0.44))
 
+    def test_reset_only_threshold_qualifies_an_already_low_cell_without_set(self) -> None:
+        api = Mock()
+        api.config = SimpleNamespace(
+            read_rails=RailVoltages(0.5, 2.5),
+            set_sweep=SimpleNamespace(vcc_set_v=(2.5,), vcc_wl_set_v=(0.44,)),
+            reset_sweep=SimpleNamespace(vcc_set_v=(3.3,), vcc_wl_set_v=(0.94,)),
+        )
+        api._pulse_and_capture.side_effect = [result(9.0), *[result(9.5) for _ in range(10)]]
+        spec = LevelSpec(code=31, row=7, target_uA=10.0, lower_uA=9.0, upper_uA=11.0)
+
+        outcome = program_cell_level(
+            api,
+            spec=spec,
+            col=0,
+            confirm_reads=10,
+            qualify_below_only=True,
+        )
+
+        self.assertTrue(outcome["qualified"])
+        api._program_pulse.assert_not_called()
+
+    def test_reset_only_threshold_never_uses_set(self) -> None:
+        api = Mock()
+        api.config = SimpleNamespace(
+            read_rails=RailVoltages(0.5, 2.5),
+            set_sweep=SimpleNamespace(vcc_set_v=(2.5,), vcc_wl_set_v=(0.44,)),
+            reset_sweep=SimpleNamespace(vcc_set_v=(3.3,), vcc_wl_set_v=(0.94,)),
+        )
+        api._pulse_and_capture.side_effect = [result(13.0), result(10.0), *[result(10.0) for _ in range(10)]]
+        api._program_pulse.return_value = result(0.0, "reset")
+        spec = LevelSpec(code=31, row=7, target_uA=10.0, lower_uA=9.0, upper_uA=11.0)
+
+        outcome = program_cell_level(
+            api,
+            spec=spec,
+            col=0,
+            confirm_reads=10,
+            qualify_below_only=True,
+        )
+
+        self.assertTrue(outcome["qualified"])
+        _, operation, rails, _ = api._program_pulse.call_args.args
+        self.assertEqual(operation, "reset")
+        self.assertEqual(rails, RailVoltages(3.3, 0.94))
+
+    def test_reset_only_unstable_confirmation_continues_from_highest_read(self) -> None:
+        api = Mock()
+        api.config = SimpleNamespace(
+            read_rails=RailVoltages(0.5, 2.5),
+            set_sweep=SimpleNamespace(vcc_set_v=(2.5,), vcc_wl_set_v=(0.44,)),
+            reset_sweep=SimpleNamespace(vcc_set_v=(3.0,), vcc_wl_set_v=(0.94,)),
+        )
+        api._pulse_and_capture.side_effect = [
+            result(5.0),
+            result(5.0),
+            *[result(30.0) for _ in range(9)],
+            result(10.0),
+            *[result(10.0) for _ in range(10)],
+        ]
+        api._program_pulse.return_value = result(0.0, "reset")
+        spec = LevelSpec(code=31, row=7, target_uA=10.0, lower_uA=9.0, upper_uA=11.0)
+
+        outcome = program_cell_level(
+            api,
+            spec=spec,
+            col=0,
+            confirm_reads=10,
+            qualify_below_only=True,
+        )
+
+        self.assertTrue(outcome["qualified"])
+        self.assertEqual(outcome["program_pulses"], 1)
+        self.assertEqual(api._program_pulse.call_args.args[1], "reset")
+
     def test_direction_reversal_returns_to_set_bracket_midpoint(self) -> None:
         api = Mock()
         api.config = SimpleNamespace(

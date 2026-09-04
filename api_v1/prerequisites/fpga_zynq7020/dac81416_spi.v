@@ -66,7 +66,7 @@ module dac81416_spi #(
                 5'd12: frame_for_index = 24'h140000;                  // DAC4
                 5'd13: frame_for_index = 24'h150000;                  // DAC5
                 5'd14: frame_for_index = {8'h16, VCC_SET_CODE};        // DAC6
-                5'd15: frame_for_index = 24'h17CCCC;                  // DAC7  4.0 V / 5 V
+                5'd15: frame_for_index = 24'h17CCCC;                  // DAC7  restored legacy 4.0 V / 5 V VDDIO
                 5'd16: frame_for_index = 24'h180000;                  // DAC8
                 5'd17: frame_for_index = 24'h190CCD;                  // DAC9  legacy 5% code
                 5'd18: frame_for_index = 24'h1A170A;                  // DAC10 legacy 9% code
@@ -74,7 +74,8 @@ module dac81416_spi #(
                 5'd20: frame_for_index = 24'h1C28F6;                  // DAC12 legacy 16% code
                 5'd21: frame_for_index = 24'h1DFFFF;                  // DAC13 5.0 V / 5 V
                 5'd22: frame_for_index = 24'h1E0000;                  // DAC14
-                5'd23: frame_for_index = 24'h1F6B85;                  // DAC15 2.1 V / 5 V
+                // Legacy bench setting, not nominal: VCCD2 is normally 1.8 V.
+                5'd23: frame_for_index = 24'h1F6B85;                  // DAC15 restored legacy VCCD2 ~= 2.1 V / 5 V
                 default: frame_for_index = 24'h000000;
             endcase
         end

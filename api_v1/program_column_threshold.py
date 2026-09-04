@@ -15,7 +15,12 @@ try:
         ScanDebugConfig,
         SweepConfig,
     )
-    from .program_column_levels import READ_CONDUCTANCE_VOLTAGE_V, LevelSpec, program_cell_level
+    from .program_column_levels import (
+        READ_CONDUCTANCE_VOLTAGE_V,
+        LevelSpec,
+        inclusive_voltage_sweep,
+        program_cell_level,
+    )
 except ImportError:
     from cell_api import (
         RESET_PROGRAM_VCC_SET_V,
@@ -25,7 +30,12 @@ except ImportError:
         ScanDebugConfig,
         SweepConfig,
     )
-    from program_column_levels import READ_CONDUCTANCE_VOLTAGE_V, LevelSpec, program_cell_level
+    from program_column_levels import (
+        READ_CONDUCTANCE_VOLTAGE_V,
+        LevelSpec,
+        inclusive_voltage_sweep,
+        program_cell_level,
+    )
 
 
 def _completed_rows(path: Path) -> set[int]:
@@ -63,6 +73,7 @@ def program_column_threshold(
     row_retries: int = 3,
     max_consecutive_errors: int = 3,
     set_only: bool = False,
+    reset_only: bool = False,
 ) -> dict[str, object]:
     if not 0 <= col <= 31:
         raise ValueError(f"column must be within 0..31, got {col}")
@@ -70,6 +81,8 @@ def program_column_threshold(
         raise ValueError(f"row range must be within 0..31, got {row_start}..{row_end}")
     if correction_tolerance_uA <= 0:
         raise ValueError("correction tolerance must be positive")
+    if set_only and reset_only:
+        raise ValueError("set-only and reset-only modes are mutually exclusive")
 
     result_path = api.config.run_dir / "column_threshold_programming.jsonl"
     completed = _completed_rows(result_path)
@@ -89,7 +102,7 @@ def program_column_threshold(
             continue
         api._append_progress(
             "program-column-threshold",
-            f"Programming row {row}, column {col} to the Set threshold",
+            f"Programming row {row}, column {col} to the {'Reset' if reset_only else 'Set'} threshold",
             row=row,
             col=col,
             threshold_uA=api.config.set_sweep.threshold_uA,
@@ -113,6 +126,7 @@ def program_column_threshold(
                     confirm_reads=confirm_reads,
                     max_program_pulses=max_program_pulses,
                     qualify_above_only=set_only,
+                    qualify_below_only=reset_only,
                 )
                 result["row"] = row
                 result["col"] = col
@@ -170,7 +184,13 @@ def program_column_threshold(
             api.config.set_sweep.threshold_uA + correction_tolerance_uA,
         ],
         "confirm_reads": confirm_reads,
-        "mode": "set_only_minimum_threshold" if set_only else "bidirectional_exact_band",
+        "mode": (
+            "set_only_minimum_threshold"
+            if set_only
+            else "reset_only_maximum_threshold"
+            if reset_only
+            else "bidirectional_exact_band"
+        ),
         "processed": len(results),
         "qualified": sum(1 for item in results if item.get("target_hit")),
         "failed": sum(1 for item in results if not item.get("target_hit")),
@@ -183,7 +203,7 @@ def program_column_threshold(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Program one column to a Set-current threshold")
+    parser = argparse.ArgumentParser(description="Program one column to a current/conductance threshold")
     parser.add_argument("--col", type=int, required=True)
     parser.add_argument("--row-start", type=int, default=0)
     parser.add_argument("--row-end", type=int, default=31)
@@ -192,15 +212,36 @@ def main() -> int:
     parser.add_argument("--correction-tolerance-uA", type=float, default=5.0)
     parser.add_argument("--correction-tolerance-uS", type=float, help="conductance tolerance on each side of the target")
     parser.add_argument("--set-vcc-set", type=float, default=SET_PROGRAM_VCC_SET_V)
-    parser.add_argument("--reset-vcc-set", type=float, default=RESET_PROGRAM_VCC_SET_V)
+    reset_vcc_group = parser.add_mutually_exclusive_group()
+    reset_vcc_group.add_argument("--reset-vcc-set", type=float)
+    reset_vcc_group.add_argument(
+        "--reset-vcc-set-range",
+        type=float,
+        nargs=3,
+        metavar=("START", "STOP", "STEP"),
+        help="outer RESET Vcc_set sweep; the complete Vcc_wl_set sweep runs at each value",
+    )
+    reset_vcc_group.add_argument(
+        "--reset-vcc-set-values",
+        type=float,
+        nargs="+",
+        metavar="V",
+        help="explicit outer RESET Vcc_set values in execution order",
+    )
     parser.add_argument("--confirm-reads", type=int, default=10)
     parser.add_argument("--max-program-pulses", type=int, default=64)
     parser.add_argument("--row-retries", type=int, default=3)
     parser.add_argument("--max-consecutive-errors", type=int, default=3)
-    parser.add_argument(
+    direction_group = parser.add_mutually_exclusive_group()
+    direction_group.add_argument(
         "--set-only",
         action="store_true",
         help="never apply reset corrections; cells already at or above the threshold receive only stability reads",
+    )
+    direction_group.add_argument(
+        "--reset-only",
+        action="store_true",
+        help="never apply set corrections; cells already at or below the threshold receive only stability reads",
     )
     parser.add_argument("--run-dir", default=f"api_v1/runs/column_threshold_{time.strftime('%Y%m%d_%H%M%S')}")
     args = parser.parse_args()
@@ -226,8 +267,15 @@ def main() -> int:
         confirm_reads=args.confirm_reads,
     )
     config = ScanDebugConfig(run_dir=Path(args.run_dir), set_sweep=set_sweep)
+    reset_vcc_set_values = (
+        tuple(args.reset_vcc_set_values)
+        if args.reset_vcc_set_values is not None
+        else inclusive_voltage_sweep(*args.reset_vcc_set_range)
+        if args.reset_vcc_set_range is not None
+        else (args.reset_vcc_set if args.reset_vcc_set is not None else RESET_PROGRAM_VCC_SET_V,)
+    )
     config.reset_sweep = SweepConfig.from_ranges(
-        vcc_set_v=(args.reset_vcc_set,),
+        vcc_set_v=reset_vcc_set_values,
         vcc_wl_set_v=config.reset_sweep.vcc_wl_set_v,
         threshold_uA=config.reset_sweep.threshold_uA,
         direction=config.reset_sweep.direction,
@@ -247,6 +295,7 @@ def main() -> int:
             row_retries=args.row_retries,
             max_consecutive_errors=args.max_consecutive_errors,
             set_only=args.set_only,
+            reset_only=args.reset_only,
         )
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0

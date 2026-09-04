@@ -517,6 +517,7 @@ def run_single_capture(root: Path, cells, rails, adc_csv: Path, manifest_csv: Pa
             ) as capture:
                 print("SINGLE_CAPTURE_ARMED", flush=True)
                 capture.wait()
+                print("BURST_STAGE Capture complete; exporting waveform data", flush=True)
                 export_digital_channels = [] if FULL_ARRAY_DETERMINISTIC_TIMING else DIGITAL_CHANNELS
                 capture.export_raw_data_csv(
                     directory=str(trace_dir),
@@ -525,6 +526,7 @@ def run_single_capture(root: Path, cells, rails, adc_csv: Path, manifest_csv: Pa
                     analog_downsample_ratio=1,
                 )
             capture_done = time.monotonic()
+            print("BURST_STAGE Waveform export complete; calculating cell readings", flush=True)
 
         if FULL_ARRAY_DETERMINISTIC_TIMING:
             decoded_windows = deterministic_packet_windows(cells)
@@ -615,6 +617,7 @@ def run_single_capture(root: Path, cells, rails, adc_csv: Path, manifest_csv: Pa
             "capture_done_monotonic": capture_done,
             "adc_state": adc_state,
             "saleae": {
+                "device_id": device.device_id,
                 "logic_app_version": app_info.app_version,
                 "digital_sample_rate": DIGITAL_SAMPLE_RATE,
                 "analog_sample_rate": ANALOG_SAMPLE_RATE,
@@ -843,6 +846,7 @@ def main():
         "cells_captured": len(manifest),
         "adc_state": adc_state,
         "manifest": manifest,
+        "saleae": {"device_id": device.device_id, "analog_sample_rate": ANALOG_SAMPLE_RATE},
     }, indent=2))
     print(f"DONE output_root={root} cells={len(manifest)}", flush=True)
 

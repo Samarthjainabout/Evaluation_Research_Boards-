@@ -86,6 +86,16 @@ foreach candidate [get_hw_vios -quiet -of_objects $dev] {
     }
 }
 set reused [expr {$vio ne ""}]
+if {$reused} {
+    # A stale hw_server session can leave the VIO object discoverable even
+    # though its debug core no longer responds (Xicom 50-38).  Validate the
+    # core before reusing it; a failed refresh must reprogram the device.
+    if {[catch {refresh_hw_vio $vio} refresh_message]} {
+        puts "RUNTIME_VIO_REUSE_FAILED=$refresh_message"
+        set reused 0
+        set vio ""
+    }
+}
 if {!$reused} {
     program_hw_devices $dev
     refresh_hw_device $dev
@@ -146,10 +156,21 @@ while {![file exists $stop_file]} {
                     set effective_first [format %X [expr {($requested_nibble & 7) | $next_trigger}]]
                     set effective_hex "$effective_first[string range $command_hex 1 end]"
 
+                    # A full-array command carries 1024 packets and takes about
+                    # 13 seconds with the configured reset/packet timing.  Scale
+                    # the acknowledgement deadline with the requested count so
+                    # the host does not abort a healthy FPGA sequence at 10 s.
+                    scan $command_hex %llx command_value
+                    set packet_count [expr {($command_value >> 41) & 0x7FF}]
+                    if {$packet_count == 0} {
+                        set packet_count 1
+                    }
+                    set command_timeout_ms [expr {10000 + ($packet_count * 20)}]
+
                     set_property OUTPUT_VALUE $effective_hex $command_probe
                     commit_hw_vio $command_probe
 
-                    set deadline_ms [expr {[clock milliseconds] + 10000}]
+                    set deadline_ms [expr {[clock milliseconds] + $command_timeout_ms}]
                     set completed 0
                     set status_hex $before_hex
                     while {[clock milliseconds] < $deadline_ms} {
@@ -165,7 +186,7 @@ while {![file exists $stop_file]} {
                         }
                     }
                     if {!$completed} {
-                        error "FPGA runtime command did not complete within 10 seconds; status=$status_hex"
+                        error "FPGA runtime command did not complete within ${command_timeout_ms} ms; status=$status_hex"
                     }
                 } message options]
 

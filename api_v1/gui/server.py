@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import os
 import platform
 import re
@@ -35,6 +36,7 @@ STATE_CACHE_SECONDS = 2.0
 
 _manifest_cache_lock = threading.RLock()
 _manifest_cache: dict[Path, tuple[tuple[int, int], list[dict[str, Any]]]] = {}
+_heatmap_cache: dict[Path, tuple[tuple[int, int], dict[str, dict[str, Any]]]] = {}
 
 try:
     from api_v1.cell_api import ScanDebugConfig
@@ -128,7 +130,64 @@ def _read_manifest(path: Path) -> list[dict[str, Any]]:
 
 
 def _manifest_for_run(run_dir: Path) -> Path:
+    if (run_dir / 'plan.json').exists() and (run_dir / 'captures' / 'manifest.csv').exists():
+        return run_dir / 'captures' / 'manifest.csv'
     return run_dir / "manifest.csv"
+
+
+def _run_directories(runs_dir: Path) -> list[Path]:
+    ordinary = {p.parent for p in runs_dir.glob('*/manifest.csv')}
+    nested = {p.parent.parent for p in runs_dir.glob('characterization_*/captures/manifest.csv')
+              if (p.parent.parent / 'plan.json').exists()}
+    return list(ordinary | nested)
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+
+
+def _characterization_state(run_dir: Path) -> dict[str, Any] | None:
+    plan = _load_json(run_dir / 'plan.json')
+    if not plan.get('trials') or not (run_dir / 'trials').is_dir():
+        return None
+    status = _load_json(run_dir / 'status.json')
+    trials = [_load_json(p) for p in sorted((run_dir / 'trials').glob('*.json'))]
+    trials = [t for t in trials if t]
+    trial = trials[-1] if trials else {}
+    events = trial.get('events', [])
+    streak = 0
+    for event in events:
+        if event.get('kind') != 'pre_read':
+            continue
+        reading = event.get('reading', {})
+        if reading.get('feedback_attempts', 1) > 1:
+            streak = 0
+        if abs(reading.get('conductance_uS', float('inf')) - trial.get('target_uS', 0)) <= plan['target_tolerance_uS']:
+            streak += 1
+        else:
+            streak = 0
+    last_time = (run_dir / 'status.json').stat().st_mtime
+    if trial:
+        last_time = max(last_time, (run_dir / 'trials' / f'{trial["id"]}.json').stat().st_mtime)
+    return {
+        'phase': plan.get('phase'), 'status': status.get('status', 'unknown'),
+        'cell': plan.get('cell'), 'total': len(plan['trials']),
+        'completed': sum(t.get('status') == 'complete' for t in trials),
+        'skipped': sum(t.get('status') in ('skipped_preparation', 'abandoned') for t in trials),
+        'trial': {k: trial.get(k) for k in ('id','kind','mode','repeat','target_uS','wl_V','status',
+                                          'preparation_pulse_count','test_pulse_count','pending_pulse','reason')},
+        'stage': events[-1].get('kind') if events else 'initializing',
+        'preReads': min(streak, plan['confirmation_reads']),
+        'postReads': len(trial.get('post_reads', [])),
+        'requiredPreReads': plan['confirmation_reads'], 'requiredPostReads': plan['post_reads'],
+        'readV': plan['read_vcc_set_V'], 'setV': plan['set_vcc_set_V'], 'resetV': plan['reset_vcc_set_V'],
+        'tolerance_uS': plan['target_tolerance_uS'],
+        'updated': last_time, 'ageSeconds': max(0, time.time() - last_time),
+        'error': status.get('error'),
+    }
 
 
 def _run_updated_at(run_dir: Path) -> float:
@@ -136,7 +195,7 @@ def _run_updated_at(run_dir: Path) -> float:
     # continuously appended data files cover updates that do not create files.
     # Avoid globbing and stat'ing thousands of capture logs on every GUI poll.
     timestamps: list[float] = []
-    for path in (run_dir, run_dir / "manifest.csv", run_dir / "progress.jsonl"):
+    for path in (run_dir, _manifest_for_run(run_dir), run_dir / "progress.jsonl", run_dir / 'status.json'):
         try:
             timestamps.append(path.stat().st_mtime)
         except OSError:
@@ -145,7 +204,7 @@ def _run_updated_at(run_dir: Path) -> float:
 
 
 def _latest_run(runs_dir: Path) -> Path | None:
-    run_dirs = sorted((path.parent for path in runs_dir.glob("*/manifest.csv")), key=_run_updated_at, reverse=True)
+    run_dirs = sorted(_run_directories(runs_dir), key=_run_updated_at, reverse=True)
     return run_dirs[0] if run_dirs else None
 
 
@@ -194,7 +253,7 @@ def _read_progress_events(run_dir: Path) -> list[dict[str, Any]]:
                 "message": item.get("message", "Processing"),
                 "cells": _int_or_none(item.get("cells")),
                 "total": _int_or_none(item.get("total")),
-                "ok": True,
+                "ok": item.get("ok", True) is not False,
                 "updated": event_time or progress_path.stat().st_mtime,
                 "eventOrder": (event_time or progress_path.stat().st_mtime) * 1000,
             }
@@ -340,14 +399,15 @@ def _terminate_windows_process_tree(pid: int) -> None:
 
 def _run_choices(runs_dir: Path) -> list[dict[str, Any]]:
     choices = []
-    for manifest in sorted(runs_dir.glob("*/manifest.csv"), key=lambda path: _run_updated_at(path.parent), reverse=True):
+    for directory in sorted(_run_directories(runs_dir), key=_run_updated_at, reverse=True):
+        manifest = _manifest_for_run(directory)
         rows = _read_manifest(manifest)
         choices.append(
             {
-                "id": manifest.parent.name,
-                "path": str(manifest.parent.relative_to(ROOT)),
+                "id": directory.name,
+                "path": str(directory.relative_to(ROOT)),
                 "rows": len(rows),
-                "updated": _run_updated_at(manifest.parent),
+                "updated": _run_updated_at(directory),
             }
         )
     return choices
@@ -428,41 +488,79 @@ def _sweep_resume_info(run_dir: Path, rows: list[dict[str, Any]]) -> dict[str, A
     }
 
 
-def _latest_array_heatmap_cells(run_dir: Path) -> dict[str, dict[str, Any]]:
-    latest_by_cell: dict[str, dict[str, Any]] = {}
-    for manifest in sorted(run_dir.parent.glob("*/manifest.csv"), key=lambda path: _run_updated_at(path.parent)):
-        if manifest.parent == run_dir:
-            continue
-        rows = _read_manifest(manifest)
-        if not _array_resume_info(manifest.parent, rows).get("isArrayRun"):
-            continue
-        is_baseline = len(rows) >= GRID_SIZE * 4
-        for row in rows:
-            cell = row.get("cellAddress")
-            if not cell or not _is_read_row(row) or row.get("current_uA") is None:
-                continue
-            if not is_baseline and not row.get("ok"):
-                continue
-            key = _cell_key(cell)
-            if key not in latest_by_cell or row.get("ok"):
-                latest_by_cell[key] = row
-    return latest_by_cell
+def _measurement_time(row: dict[str, Any], manifest: Path, fallback: float,
+                      file_times: dict[Path, float | None]) -> tuple[float, str]:
+    # Prefer acquisition evidence over run-directory activity. Appending a new
+    # cell to an old run must not make all its old readings appear new again.
+    recorded = _float_or_none(row.get("measured_at"))
+    if recorded is not None and math.isfinite(recorded) and recorded > 0:
+        return recorded, "recorded"
+    paths = [manifest.parent / f"capture_{row.get('index')}_{row.get('kind')}.log"]
+    source = str(row.get("local_output_dir") or "")
+    if source and source not in {"DRY_RUN", "FPGA_RUNTIME_ACK_NO_CAPTURE"}:
+        capture = Path(source)
+        if not capture.is_absolute():
+            capture = ROOT / capture
+        capture_index = re.match(r"^(\d+)_", capture.name)
+        if "burst" in str(row.get("stage", "")) and capture_index:
+            paths.insert(0, manifest.parent / f"capture_{capture_index.group(1)}_read_array_burst.log")
+        paths.append(capture)
+    for path in paths:
+        if path not in file_times:
+            try:
+                file_times[path] = path.stat().st_mtime
+            except OSError:
+                file_times[path] = None
+        if file_times[path] is not None:
+            return file_times[path], "capture-file"
+    return fallback, "manifest-fallback"
 
 
-def _latest_single_cell_heatmap_cells(run_dir: Path) -> dict[str, dict[str, Any]]:
-    latest_by_cell: dict[str, dict[str, Any]] = {}
-    for manifest in sorted(run_dir.parent.glob("*/manifest.csv"), key=lambda path: _run_updated_at(path.parent)):
-        rows = _read_manifest(manifest)
-        if _array_resume_info(manifest.parent, rows).get("isArrayRun"):
-            continue
-        for row in rows:
-            cell = row.get("cellAddress")
-            if cell and _is_read_row(row) and row.get("current_uA") is not None:
-                latest_by_cell[_cell_key(cell)] = row
-    return latest_by_cell
+def _heatmap_manifest_cells(manifest: Path) -> dict[str, dict[str, Any]]:
+    try:
+        stat = manifest.stat()
+    except OSError:
+        return {}
+    signature = (stat.st_mtime_ns, stat.st_size)
+    with _manifest_cache_lock:
+        cached = _heatmap_cache.get(manifest)
+        if cached and cached[0] == signature:
+            return cached[1]
+    latest: dict[str, dict[str, Any]] = {}
+    # Select the last valid read per cell within this append-only manifest.
+    for row in _read_manifest(manifest):
+        value = row.get("current_uA")
+        if (row.get("cellAddress") and _is_read_row(row) and row.get("ok")
+                and value is not None and math.isfinite(value)
+                and row.get("local_output_dir") != "DRY_RUN"):
+            latest[_cell_key(row["cellAddress"])] = row
+    file_times: dict[Path, float | None] = {}
+    out = {}
+    for key, row in latest.items():
+        measured, basis = _measurement_time(row, manifest, stat.st_mtime, file_times)
+        out[key] = {**row, "measurementTime": measured, "measurementTimeBasis": basis,
+                    "sourceRun": manifest.parent.parent.name if manifest.parent.name == 'captures' else manifest.parent.name,
+                    "measurementMode": "burst" if "burst" in str(row.get("stage", "")) else "single"}
+    with _manifest_cache_lock:
+        _heatmap_cache[manifest] = (signature, out)
+    return out
+
+
+def _latest_heatmap_cells(run_dir: Path) -> dict[str, dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for directory in sorted(_run_directories(run_dir.parent)):
+        manifest = _manifest_for_run(directory)
+        for key, row in _heatmap_manifest_cells(manifest).items():
+            previous = latest.get(key)
+            if previous is None or row["measurementTime"] > previous["measurementTime"]:
+                latest[key] = row
+    return latest
 
 
 def _combined_cell_history(run_dir: Path, rows: list[dict[str, Any]], last_cell: dict[str, int] | None) -> list[dict[str, Any]]:
+    if (run_dir / 'plan.json').exists():
+        # Do not mix historical cycles into this independently prepared experiment.
+        return [dict(row) for row in rows[-160:]]
     if not last_cell or _array_resume_info(run_dir, rows).get("isArrayRun"):
         return rows[-160:]
     target_key = _cell_key(last_cell)
@@ -534,13 +632,12 @@ def _summarize(run_dir: Path, rows: list[dict[str, Any]]) -> dict[str, Any]:
     values = [row["current_uA"] for row in latest_read_by_cell.values() if row.get("current_uA") is not None]
     min_current = min(values) if values else None
     max_current = max(values) if values else None
-    heatmap_cells = _latest_array_heatmap_cells(run_dir)
-    heatmap_cells.update(_latest_single_cell_heatmap_cells(run_dir))
-    heatmap_cells.update(latest_read_by_cell)
+    heatmap_cells = _latest_heatmap_cells(run_dir)
     history = _combined_cell_history(run_dir, rows, last_cell)
     read_history = [row for row in history if _is_read_row(row)]
 
     return {
+        "characterization": _characterization_state(run_dir),
         "run": {
             "id": run_dir.name,
             "path": str(run_dir.relative_to(ROOT)),
@@ -650,6 +747,10 @@ class GuiHandler(SimpleHTTPRequestHandler):
             return
         if not self.config.allow_commands:
             self._send_json({"error": "Commands are disabled. Start with --allow-commands to enable hardware actions."}, HTTPStatus.FORBIDDEN)
+            return
+        if any((_characterization_state(directory) or {}).get('status') == 'running'
+               for directory in self.config.runs_dir.glob('characterization_*') if directory.is_dir()):
+            self._send_json({'error': 'Characterization is active; do not start a competing hardware operation.'}, HTTPStatus.CONFLICT)
             return
         length = int(self.headers.get("Content-Length", "0"))
         payload = json.loads(self.rfile.read(length) or b"{}")
@@ -794,6 +895,13 @@ class GuiHandler(SimpleHTTPRequestHandler):
                     log_handle.close()
                 self.running_commands.pop(key, None)
         states.extend(self._external_command_state(tracked_pids))
+        for directory in self.config.runs_dir.glob('characterization_*'):
+            info = _characterization_state(directory)
+            if info and info['status'] == 'running':
+                row, col = info['cell']
+                states.append({'id': f'characterization-{directory.name}', 'running': True,
+                               'canKill': False, 'external': True, 'operation': 'characterization',
+                               'row': row, 'col': col, 'runDir': str(directory.relative_to(ROOT))})
         return states
 
     def _external_command_state(self, tracked_pids: set[int]) -> list[dict[str, Any]]:

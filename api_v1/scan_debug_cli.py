@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -47,13 +48,31 @@ def parse_sweep(text: str) -> tuple[float, ...]:
     return tuple(float(part) for part in text.split(",") if part)
 
 
+def apply_saved_experiment_defaults(args, argv, path=None):
+    path = path or Path(__file__).resolve().parent / "experiment_profiles.json"
+    if not path.exists():
+        return
+    explicit = {token.split("=", 1)[0] for token in argv if token.startswith("--")}
+    allowed = {"set_threshold", "reset_threshold", "set_vcc_set", "reset_vcc_set", "confirm_reads"}
+    for profile in json.loads(path.read_text()).get("profiles", []):
+        if (args.operation, args.row, args.col) != (profile["operation"], profile["row"], profile["col"]):
+            continue
+        for key, value in profile["defaults"].items():
+            if key not in allowed:
+                raise ValueError(f"Unsupported experiment default: {key}")
+            if "--" + key.replace("_", "-") not in explicit:
+                setattr(args, key, value)
+
+
 def build_config(args: argparse.Namespace) -> ScanDebugConfig:
     return ScanDebugConfig(
         run_dir=Path(args.run_dir),
         dry_run=args.dry_run,
         attempts=args.attempts,
+        read_feedback_attempts=args.read_feedback_attempts,
         read_rails=RailVoltages(args.read_vcc_set, args.read_vcc_wl_set),
         shunt_ohms=args.shunt_ohms,
+        read_calibration_path=Path(args.read_calibration) if args.read_calibration else None,
         zynq_host=args.zynq_host or None,
         zynq_password=args.zynq_password or None,
         zynq_os=args.zynq_os,
@@ -140,10 +159,14 @@ def main() -> int:
     parser.add_argument("--run-dir", default=f"api_v1/runs/run_{time.strftime('%Y%m%d_%H%M%S_IST')}")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--attempts", type=int, default=int(os.environ.get("SCAN_DEBUG_ATTEMPTS", "3")))
+    parser.add_argument("--read-feedback-attempts", type=int, choices=(1,2,3), default=3,
+                        help="Bounded fresh READ attempts for invalid feedback; never repeats a SET/RESET pulse")
     parser.add_argument("--confirm-reads", type=int, default=10)
     parser.add_argument("--shunt-ohms", type=float, default=470.0)
 
     parser.add_argument("--read-vcc-set", type=float, default=0.5)
+    parser.add_argument("--read-calibration", default=str(Path(__file__).resolve().parent / "calibration/read_offset_A25E1BAA6577FA4D_0p5V.json"),
+                        help="Device/read-voltage-specific offset profile; pass an empty value for raw diagnostics")
     parser.add_argument("--read-vcc-wl-set", type=float, default=2.5)
     parser.add_argument("--set-vcc-set", default=str(SET_PROGRAM_VCC_SET_V))
     parser.add_argument("--set-vcc-wl-set", default=",".join(str(value) for value in SET_PROGRAM_VCC_WL_V))
@@ -228,11 +251,26 @@ def main() -> int:
     parser.add_argument("--hardware-queue-poll-seconds", type=float, default=float(os.environ.get("SCAN_DEBUG_HARDWARE_QUEUE_POLL_SECONDS", "5")))
     parser.add_argument("--hardware-queue-stale-seconds", type=float, default=float(os.environ.get("SCAN_DEBUG_HARDWARE_QUEUE_STALE_SECONDS", "43200")))
     args = parser.parse_args()
+    apply_saved_experiment_defaults(args, sys.argv[1:])
     if args.operation not in {"read-array", "build-runtime-bitstream", "build-array-bitstreams"} and args.row is None:
         parser.error("--row is required unless operation is read-array or a bitstream build")
 
     api = ScanDebugCellAPI(build_config(args))
+    api._append_jsonl("experiment_settings.jsonl", {
+        "operation": args.operation, "row": args.row, "col": args.col,
+        "read_voltage_V": args.read_vcc_set, "read_wl_voltage_V": args.read_vcc_wl_set,
+        "set_threshold_uA": args.set_threshold, "reset_threshold_uA": args.reset_threshold,
+        "set_vcc_set_V": api.config.set_sweep.vcc_set_v,
+        "reset_vcc_set_V": api.config.reset_sweep.vcc_set_v,
+        "set_wl_V": api.config.set_sweep.vcc_wl_set_v,
+        "reset_wl_V": api.config.reset_sweep.vcc_wl_set_v,
+        "confirm_reads": args.confirm_reads, "noise_allowance_uA": api._read_noise_allowance(),
+    })
     with api.hardware_queue(args.operation):
+        if args.operation == "cycle":
+            api._append_progress("cycle", "Starting calibrated SET/RESET cycle",
+                row=args.row, col=args.col, set_threshold_uA=args.set_threshold,
+                reset_threshold_uA=args.reset_threshold, confirm_reads=args.confirm_reads)
         if args.operation == "read":
             result = api.read(args.row, args.col)
         elif args.operation == "set":

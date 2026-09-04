@@ -55,6 +55,10 @@ function formatScaledCurrent(value) {
   return Number.isFinite(value) ? `${value.toFixed(1)}` : "--";
 }
 
+function formatVoltage(value) {
+  return Number.isFinite(value) ? value.toFixed(2) : "--";
+}
+
 function scaleCurrent(value) {
   return Number.isFinite(value) ? value * CURRENT_DISPLAY_SCALE : value;
 }
@@ -70,10 +74,8 @@ function cellKey(cell) {
 function colorFor(value, min, max) {
   if (!Number.isFinite(value)) return "#2a2d34";
   if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return "#4cc9a6";
-  const logMin = Math.max(LOG_DISPLAY_FLOOR_US, min);
-  const logMax = Math.max(max, logMin * 10);
-  const clamped = Math.max(logMin, Math.min(logMax, value));
-  const t = (Math.log10(clamped) - Math.log10(logMin)) / (Math.log10(logMax) - Math.log10(logMin));
+  const clamped = Math.max(min, Math.min(max, value));
+  const t = (clamped - min) / (max - min);
   const hue = 205 - t * 170;
   const light = 38 + t * 20;
   return `hsl(${hue}, 78%, ${light}%)`;
@@ -199,13 +201,18 @@ function renderTicker(summary) {
 function activeCommandEvent(command, summary) {
   const last = summary?.last;
   const cell = Number.isFinite(command.row) ? { row: command.row, col: command.col ?? 0 } : last?.cellAddress;
-  const pulse = latestPulseForOperation(summary?.history || [], command.operation);
+  // History may contain earlier runs. Never borrow their voltage as live telemetry.
+  const sameRun = String(command.runDir || "").replaceAll("\\", "/").split("/").pop() === summary?.run?.id;
+  const pulse = sameRun ? summary?.last : null;
+  const liveRails = Number.isFinite(command.activeVccSet_V) && Number.isFinite(command.activeVccWlSet_V);
   return {
     source: "active-command",
     operation: command.operation || "api",
     cellAddress: cell,
-    vcc_set_V: pulse?.vcc_set_V ?? command.activeVccSet_V,
-    vcc_wl_set_V: pulse?.vcc_wl_set_V ?? command.activeVccWlSet_V,
+    vcc_set_V: liveRails ? command.activeVccSet_V : pulse?.vcc_set_V,
+    vcc_wl_set_V: liveRails ? command.activeVccWlSet_V : pulse?.vcc_wl_set_V,
+    voltageSource: liveRails ? "requested" : "last recorded",
+    voltageOperation: liveRails ? "" : pulse?.operation,
     eventOrder: Number.MAX_SAFE_INTEGER,
   };
 }
@@ -252,14 +259,14 @@ function formatApiEvent(row) {
     const cell = formatCell(row.cellAddress);
     const op = String(row.operation || "API").toUpperCase();
     const rails = Number.isFinite(row.vcc_set_V) && Number.isFinite(row.vcc_wl_set_V)
-      ? `Vcc ${row.vcc_set_V} V / WL ${row.vcc_wl_set_V} V`
-      : "voltage pending";
+      ? `${row.voltageSource || "last recorded"}${row.voltageOperation ? ` ${row.voltageOperation.toUpperCase()}` : ""}: Vcc ${formatVoltage(row.vcc_set_V)} V / WL ${formatVoltage(row.vcc_wl_set_V)} V`
+      : "voltage telemetry unavailable";
     return `${op} running at ${cell}: ${rails}`;
   }
   const cell = formatCell(row.cellAddress);
   const packet = row.packet ? `packet ${row.packet}` : "packet unknown";
   const rails = Number.isFinite(row.vcc_set_V) && Number.isFinite(row.vcc_wl_set_V)
-    ? `rails ${row.vcc_set_V} V / ${row.vcc_wl_set_V} V`
+    ? `rails ${formatVoltage(row.vcc_set_V)} V / ${formatVoltage(row.vcc_wl_set_V)} V`
     : "rails unknown";
   const status = row.ok ? "decoded OK" : "needs check";
   if (isRead(row)) {
@@ -289,7 +296,10 @@ function repaintHeatmap() {
     const value = scaleCurrent(item?.current_uA);
     node.style.background = colorFor(value, min, max);
     node.classList.toggle("active", node.dataset.key === state.heatmapActiveKey);
-    node.title = item ? `${formatCell(item.cellAddress)} ${formatScaledCurrent(value)} uS ${item.operation}` : `${node.dataset.key}: no read`;
+    const measuredAt = item?.measurementTime ? new Date(item.measurementTime * 1000).toLocaleString() : "time unknown";
+    node.title = item
+      ? `${formatCell(item.cellAddress)} ${formatScaledCurrent(value)} uS (${item.measurementMode || "read"})\n${measuredAt}\nSource: ${item.sourceRun || "unknown"}`
+      : `${node.dataset.key}: no read`;
   }
   els.scaleMin.textContent = "";
   els.scaleMax.textContent = "";
@@ -356,11 +366,23 @@ function isRead(row) {
   return row?.operation === "read" || String(row?.stage || "").startsWith("read");
 }
 
+function isBeforeReadForPulse(read, pulse) {
+  const match = String(read?.stage || "").match(/(?:^|_)read_before_(set|reset)$/);
+  return Boolean(match && isRead(read) && read.ok !== false && pulse?.ok !== false
+    && pulse?.operation === match[1] && read.cellAddress && pulse.cellAddress
+    && cellKey(read.cellAddress) === cellKey(pulse.cellAddress));
+}
+
 function buildPulseSeries(history) {
   const pulses = [];
   let pending = null;
-  for (const row of history) {
-    if (!row?.cellAddress) continue;
+  const rows = history.filter((row) => row?.cellAddress);
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    // Match the old pulse + after-read spacing. A paired before-read is
+    // metadata for the upcoming pulse, not another X-axis position. Keep an
+    // unpaired/latest before-read visible until that pulse actually exists.
+    if (isBeforeReadForPulse(row, rows[index + 1])) continue;
     if (!isRead(row)) {
       pending = {
         cell: row.cellAddress,
@@ -370,11 +392,15 @@ function buildPulseSeries(history) {
         wl: row.vcc_wl_set_V,
         vcc: row.vcc_set_V,
         current: null,
+        beforeCurrent: isBeforeReadForPulse(rows[index - 1], row)
+          ? scaleCurrent(rows[index - 1].current_uA) : null,
       };
       pulses.push(pending);
       continue;
     }
-    if (pending && pending.current === null) {
+    if (pending && pending.current === null
+      && cellKey(pending.cell) === cellKey(row.cellAddress)
+      && !/(?:^|_)read_before_(set|reset)$/.test(String(row.stage || ""))) {
       pending.current = scaleCurrent(row.current_uA);
       pending.readStage = row.stage;
     } else {
@@ -573,7 +599,7 @@ function drawActiveVoltageBadge(ctx, row, left, width, bottomY) {
   if (!row || !(row.operation === "set" || row.operation === "reset")) return;
   const op = row.operation.toUpperCase();
   const color = row.operation === "set" ? "#ff6c79" : "#8bcced";
-  const text = `${op}  Vcc ${row.vcc_set_V ?? "--"}V  WL ${row.vcc_wl_set_V ?? "--"}V`;
+  const text = `${op}  Vcc ${formatVoltage(row.vcc_set_V)}V  WL ${formatVoltage(row.vcc_wl_set_V)}V`;
   ctx.font = "600 12px system-ui";
   const textW = ctx.measureText(text).width;
   const x = left + width - textW - 10;
@@ -592,9 +618,9 @@ function drawLabels(ctx, pulses, currentMin, currentMax, voltageMax, left, top, 
   ctx.font = "12px system-ui";
   ctx.fillStyle = "#9aa4af";
   ctx.textAlign = "right";
-  ctx.fillText(`+${voltageMax.toFixed(1)}V`, left - 8, bottomY + 11);
-  ctx.fillText("0V", left - 8, bottomY + bottomH / 2 + 4);
-  ctx.fillText(`-${voltageMax.toFixed(1)}V`, left - 8, bottomY + bottomH - 4);
+  ctx.fillText(`+${voltageMax.toFixed(2)}V`, left - 8, bottomY + 11);
+  ctx.fillText("0.00V", left - 8, bottomY + bottomH / 2 + 4);
+  ctx.fillText(`-${voltageMax.toFixed(2)}V`, left - 8, bottomY + bottomH - 4);
   ctx.textAlign = "left";
   ctx.fillStyle = "#ff3b4f";
   ctx.fillRect(left + 250, totalH - 42, 28, 5);
@@ -606,6 +632,34 @@ function drawLabels(ctx, pulses, currentMin, currentMax, voltageMax, left, top, 
 
 let refreshInFlight = false;
 
+function mergeCharacterizationFeed(data, feed, nowSeconds = Date.now() / 1000) {
+  if (!feed?.state?.characterization) return data;
+  const info = feed.state.characterization;
+  const feedRun = feed.state.run;
+  const age = Math.max(0, nowSeconds - feed.published);
+  const active = info.status === 'running';
+  const fresh = age < 20;
+  const choices = data.runs || [];
+  if (!choices.some(run => run.id === feedRun.id)) choices.unshift(feedRun);
+  data.runs = choices;
+  // Native server data takes precedence once that server supports this run.
+  if (!data.state?.characterization &&
+      (state.manualRun ? state.selectedRun === feedRun.id : feedRun.updated >= (data.state?.run?.updated || 0))) {
+    data.state = feed.state;
+    if (active && !fresh) {
+      info.ageSeconds = Math.max(info.ageSeconds, age);
+      info.error = 'Live GUI feed is stale. Last saved data shown; check the experiment process.';
+    }
+  }
+  if (active && !(data.runningCommands || []).some(c => c.operation === 'characterization')) {
+    data.runningCommands = [...(data.runningCommands || []), {
+      id: `characterization-${feedRun.id}`, running: true, canKill: false, external: true,
+      operation: 'characterization', row: info.cell[0], col: info.cell[1], runDir: feedRun.path,
+    }];
+  }
+  return data;
+}
+
 async function refresh() {
   if (refreshInFlight) return;
   refreshInFlight = true;
@@ -614,6 +668,11 @@ async function refresh() {
     const response = await fetch(`/api/state${query}`, { cache: "no-store" });
     if (!response.ok) throw new Error(`GUI state request failed (${response.status})`);
     const data = await response.json();
+    // Optional read-only feed lets an existing server show the pilot without a restart.
+    try {
+      const live = await fetch('/characterization_live.json', { cache: 'no-store' });
+      if (live.ok) mergeCharacterizationFeed(data, await live.json());
+    } catch (_) { /* Ordinary GUI operation does not depend on this optional feed. */ }
     state.lastSummary = data.state || null;
     state.currentRunId = data.state?.run?.id || "";
     state.arrayResume = data.state?.arrayResume || null;
@@ -625,6 +684,10 @@ async function refresh() {
     renderMetrics(data.state);
     renderHeatmap(data.state);
     renderChart(data.state);
+    // Keep experiment errors in the original status area, without an extra panel.
+    if (data.state?.characterization?.error) {
+      els.commandNote.textContent = data.state.characterization.error;
+    }
   } catch (error) {
     els.commandNote.textContent = `GUI refresh error: ${error.message}`;
   } finally {

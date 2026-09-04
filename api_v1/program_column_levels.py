@@ -421,11 +421,14 @@ def program_cell_level(
     confirm_reads: int = 10,
     max_program_pulses: int = 64,
     qualify_above_only: bool = False,
+    qualify_below_only: bool = False,
 ) -> dict[str, object]:
     if confirm_reads < 1:
         raise ValueError("confirm_reads must be positive")
     if max_program_pulses < 1:
         raise ValueError("max_program_pulses must be positive")
+    if qualify_above_only and qualify_below_only:
+        raise ValueError("above-only and below-only qualification are mutually exclusive")
     cell = CellAddress(spec.row, col)
     cell.validate()
     set_rails = _rails_for_sweep(api.config.set_sweep.vcc_set_v, api.config.set_sweep.vcc_wl_set_v)
@@ -456,6 +459,8 @@ def program_cell_level(
         inside_target = (
             current.current_uA >= spec.target_uA
             if qualify_above_only
+            else current.current_uA <= spec.target_uA
+            if qualify_below_only
             else _inside(current.current_uA, spec)
         )
         if inside_target:
@@ -470,6 +475,8 @@ def program_cell_level(
                 and (
                     item.current_uA >= spec.target_uA
                     if qualify_above_only
+                    else item.current_uA <= spec.target_uA
+                    if qualify_below_only
                     else _inside(item.current_uA, spec)
                 )
                 for item in confirmations
@@ -480,6 +487,28 @@ def program_cell_level(
                     "results": [_result_record(item) for item in confirmations],
                 }
             )
+            if not stable and (qualify_above_only or qualify_below_only):
+                violating = [
+                    item
+                    for item in confirmations
+                    if item.ok
+                    and item.current_uA is not None
+                    and (
+                        item.current_uA < spec.target_uA
+                        if qualify_above_only
+                        else item.current_uA > spec.target_uA
+                    )
+                ]
+                if violating:
+                    # A single optimistic read must not cause a threshold run
+                    # to skip a cell. Continue from the worst violating sample:
+                    # lowest for SET-only, highest for RESET-only.
+                    current = (
+                        min(violating, key=lambda item: item.current_uA)
+                        if qualify_above_only
+                        else max(violating, key=lambda item: item.current_uA)
+                    )
+                    continue
             return {
                 "cell": asdict(cell),
                 "code": spec.code,
@@ -492,7 +521,15 @@ def program_cell_level(
                 "events": events,
             }
 
-        operation = "set" if qualify_above_only or current.current_uA < spec.lower_uA else "reset"
+        operation = (
+            "set"
+            if qualify_above_only
+            else "reset"
+            if qualify_below_only
+            else "set"
+            if current.current_uA < spec.lower_uA
+            else "reset"
+        )
         bracket = set_bracket if operation == "set" else reset_bracket
         if program_pulses >= max_program_pulses:
             return {

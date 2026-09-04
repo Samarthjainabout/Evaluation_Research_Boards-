@@ -27,6 +27,9 @@ module dac81416_runtime_spi (
     // Vcc_wl_set=2.5 V on the 0..5 V range.
     localparam [15:0] DEFAULT_VCC_SET_CODE = 16'h0CCD;
     localparam [15:0] DEFAULT_VCC_WL_CODE  = 16'h8000;
+    // Restore the earlier bench rail profile requested on 2026-09-03.
+    // DAC7 uses the 0..5 V range: 0xCCCC = 4.0 V VDDIO.
+    localparam [15:0] DEFAULT_VDDIO_CODE   = 16'hCCCC;
 
     reg [2:0] state = SPI_LOAD;
     reg [4:0] frame_index = 5'd0;
@@ -59,7 +62,7 @@ module dac81416_runtime_spi (
                 5'd12: initialization_frame = 24'h140000;
                 5'd13: initialization_frame = 24'h150000;
                 5'd14: initialization_frame = {8'h16, DEFAULT_VCC_SET_CODE};
-                5'd15: initialization_frame = 24'h17CCCC;
+                5'd15: initialization_frame = {8'h17, DEFAULT_VDDIO_CODE};
                 5'd16: initialization_frame = 24'h180000;
                 5'd17: initialization_frame = 24'h190CCD;
                 5'd18: initialization_frame = 24'h1A170A;
@@ -67,7 +70,8 @@ module dac81416_runtime_spi (
                 5'd20: initialization_frame = 24'h1C28F6;
                 5'd21: initialization_frame = 24'h1DFFFF;
                 5'd22: initialization_frame = 24'h1E0000;
-                5'd23: initialization_frame = 24'h1F6B85;
+                // Legacy bench setting, not nominal: VCCD2 is normally 1.8 V.
+                5'd23: initialization_frame = 24'h1F6B85; // DAC15 VCCD2 ~= 2.1 V / 5 V
                 default: initialization_frame = 24'h000000;
             endcase
         end

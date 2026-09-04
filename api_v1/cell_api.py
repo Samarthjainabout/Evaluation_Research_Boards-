@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import codecs
 import csv
 import hashlib
 import io
@@ -20,19 +21,22 @@ import uuid
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Iterator, Iterable, Literal
+from typing import Iterator, Iterable, Literal, TextIO
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SUMMARIZER = ROOT / "api_v1/tools/summarize_capture.py"
+DEFAULT_READ_CALIBRATION = ROOT / "api_v1/calibration/read_offset_A25E1BAA6577FA4D_0p5V.json"
 FPGA_BITSTREAM_DIR = ROOT / "api_v1/prerequisites/fpga_zynq7020/bitstreams"
 FPGA_RUNTIME_BITSTREAM = "caravel_scan_debug_runtime_dac81416_v2.bit"
 FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_v2.ltx"
+# Below CMD's 8191-character limit, including directory/shell wrappers.
+WINDOWS_REMOTE_COMMAND_LIMIT = 8000
 
 # Five-bit programming projection from set_reset_vcc_wl_projection_0_to_31.xlsx.
 # Set keeps Vcc_set fixed. Reset uses an outer Vcc_set sweep; the complete
 # DAC3/Vcc_wl_set projection runs inside each Vcc_set value.
-SET_PROGRAM_VCC_SET_V = 2.5
+SET_PROGRAM_VCC_SET_V = 2.3
 SET_PROGRAM_VCC_WL_V = (
     0.44, 0.50, 0.56, 0.63, 0.69, 0.75, 0.81, 0.87,
     0.94, 1.00, 1.06, 1.12, 1.19, 1.25, 1.31, 1.37,
@@ -69,6 +73,10 @@ MANIFEST_FIELDS = [
 
 
 Operation = Literal["read", "set", "reset"]
+
+
+class InvalidReadFeedbackError(RuntimeError):
+    """A decoded READ has unusable feedback; only a fresh READ may be retried."""
 
 
 @dataclass(frozen=True)
@@ -158,7 +166,9 @@ class ScanDebugConfig:
         )
     )
     attempts: int = 3
+    read_feedback_attempts: int = 1
     shunt_ohms: float = 470.0
+    read_calibration_path: Path | None = None
     dry_run: bool = False
 
     zynq_host: str | None = "geethika@100.116.216.70"
@@ -238,6 +248,7 @@ class CellOperationResult:
     ok: bool = False
     local_output_dir: str = ""
     error: str = ""
+    feedback_attempts: int = 1
 
 
 def packet_for_cell(cell: CellAddress, op_set: int) -> int:
@@ -267,6 +278,89 @@ def cell_from_packet(packet: int, *, op_set: int = 0) -> CellAddress | None:
 
 def bits_lsb(packet: int) -> str:
     return f"{packet:016b}"[::-1]
+
+
+class PasswordSSHProcess:
+    """Own a long-lived SSH channel with the lifecycle used by the runtime.
+
+    Drain output continuously so SSH flow control cannot block the daemon.
+    Credentials are used only to open the connection, never in process args.
+    """
+
+    def __init__(self, client, channel, host: str, log: TextIO):
+        self.args = ["ssh", host]
+        self.returncode: int | None = None
+        self._client = client
+        self._channel = channel
+        self._log = log
+        self._finished = threading.Event()
+        self._cancel_code: int | None = None
+        self._reader = threading.Thread(target=self._read_output, daemon=True)
+        self._reader.start()
+
+    def _read_output(self) -> None:
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        try:
+            while True:
+                chunk = self._channel.recv(32768)
+                if not chunk:
+                    break
+                self._log.write(decoder.decode(chunk))
+                self._log.flush()
+            self._log.write(decoder.decode(b"", final=True))
+            self._log.flush()
+            self.returncode = self._channel.recv_exit_status()
+        except Exception as exc:
+            self.returncode = -1
+            if self._cancel_code is None:
+                # Avoid exposing authentication details through exception text.
+                try:
+                    self._log.write(f"SSH runtime channel failed ({type(exc).__name__})\n")
+                    self._log.flush()
+                except (OSError, ValueError):
+                    pass
+        finally:
+            if self._cancel_code is not None:
+                self.returncode = self._cancel_code
+            try:
+                self._channel.close()
+            except (EOFError, OSError):
+                # An already-disconnected transport needs no further close handshake.
+                pass
+            finally:
+                try:
+                    self._client.close()
+                except (EOFError, OSError):
+                    pass
+                finally:
+                    self._finished.set()
+
+    def poll(self) -> int | None:
+        return self.returncode if self._finished.is_set() else None
+
+    def wait(self, timeout: float | None = None) -> int:
+        if not self._finished.wait(timeout):
+            raise subprocess.TimeoutExpired(self.args, timeout)
+        return self.returncode if self.returncode is not None else -1
+
+    def terminate(self) -> None:
+        self._cancel(-15)
+
+    def kill(self) -> None:
+        self._cancel(-9)
+
+    def _cancel(self, code: int) -> None:
+        if self.poll() is None:
+            self._cancel_code = code
+            try:
+                self._channel.close()
+            except (EOFError, OSError):
+                pass
+            finally:
+                try:
+                    self._client.close()
+                except (EOFError, OSError):
+                    pass
 
 
 class CommandRunner:
@@ -323,13 +417,12 @@ exit [lindex $result 3]
         return subprocess.CompletedProcess(["ssh", host, command], proc.returncode, proc.stdout, "")
 
     @staticmethod
-    def _ssh_with_paramiko_password(
+    def _open_password_ssh_client(
         host: str,
         password: str,
-        command: str,
         *,
         timeout_s: int | None = None,
-    ) -> subprocess.CompletedProcess[str]:
+    ):
         try:
             import paramiko
         except ImportError as exc:
@@ -359,20 +452,71 @@ exit [lindex $result 3]
             transport = client.get_transport()
             if transport is None or not transport.is_active():
                 raise RuntimeError(f"SSH connection to {host} did not become active")
+            return client
+        except BaseException:
+            client.close()
+            raise
+
+    @staticmethod
+    def _open_password_ssh_channel(
+        host: str, password: str, command: str, *, timeout_s: int | None = None,
+    ):
+        client = CommandRunner._open_password_ssh_client(host, password, timeout_s=timeout_s)
+        try:
+            transport = client.get_transport()
             channel = transport.open_session(timeout=timeout_s)
             try:
                 channel.set_combine_stderr(True)
                 if timeout_s is not None:
                     channel.settimeout(timeout_s)
                 channel.exec_command(command)
-                raw_output = channel.makefile("rb", -1).read()
-                output = raw_output.decode("utf-8", errors="replace")
-                returncode = channel.recv_exit_status()
-            finally:
+            except BaseException:
                 channel.close()
-        finally:
+                raise
+            return client, channel
+        except BaseException:
             client.close()
+            raise
+
+    @staticmethod
+    def _ssh_with_paramiko_password(
+        host: str, password: str, command: str, *, timeout_s: int | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        client, channel = CommandRunner._open_password_ssh_channel(
+            host, password, command, timeout_s=timeout_s,
+        )
+        try:
+            raw_output = channel.makefile("rb", -1).read()
+            output = raw_output.decode("utf-8", errors="replace")
+            returncode = channel.recv_exit_status()
+        finally:
+            try:
+                channel.close()
+            finally:
+                client.close()
         return subprocess.CompletedProcess(["ssh", host, command], returncode, output, "")
+
+    def start_password_ssh_process(
+        self, host: str, password: str, command: str, *, log: TextIO,
+        timeout_s: int | None = None,
+    ) -> PasswordSSHProcess:
+        if self.dry_run:
+            raise RuntimeError("Cannot start an SSH process during a dry run")
+        client, channel = self._open_password_ssh_channel(
+            host, password, command, timeout_s=timeout_s,
+        )
+        try:
+            # Startup/authentication is bounded above. Once started, a healthy
+            # idle daemon must survive longer than the connection timeout.
+            channel.settimeout(None)
+            client.get_transport().set_keepalive(30)
+            return PasswordSSHProcess(client, channel, host, log)
+        except BaseException:
+            try:
+                channel.close()
+            finally:
+                client.close()
+            raise
 
 
 class ScanDebugCellAPI:
@@ -384,11 +528,60 @@ class ScanDebugCellAPI:
         self.manifest = self.config.run_dir / "manifest.csv"
         self._runtime_bitstream_ready = False
         self._runtime_daemon_ready = False
-        self._runtime_daemon_process: subprocess.Popen[str] | None = None
+        self._runtime_daemon_process: subprocess.Popen[str] | PasswordSSHProcess | None = None
         self._runtime_daemon_log_handle = None
         self._pending_capture_copies: list[tuple[threading.Thread, list[BaseException]]] = []
         self._saleae_capture_script_ready = False
+        self._hardware_queue_lease: tuple[str, str, str, str] | None = None
+        self._hardware_queue_ownership_lost = False
         self._ensure_manifest()
+        self._read_calibration = None
+        if self.config.read_calibration_path is not None:
+            self._read_calibration = json.loads(Path(self.config.read_calibration_path).read_text())
+            if (self._read_calibration.get("channels") != [12, 13]
+                or self._read_calibration.get("shunt_ohms") != self.config.shunt_ohms
+                or self._read_calibration.get("read_voltage_V") != self.config.read_rails.vcc_set_v):
+                raise ValueError("Read calibration does not match channels, shunt, or read voltage")
+            (self.config.run_dir / "read_calibration_profile.json").write_text(
+                json.dumps(self._read_calibration, indent=2))
+            if not math.isfinite(self._read_noise_allowance()) or self._read_noise_allowance() < 0:
+                raise ValueError("Invalid calibration noise allowance")
+
+    def _read_noise_allowance(self) -> float:
+        return float((self._read_calibration or {}).get("noise_allowance_uA", 0.0))
+
+    def _read_feedback_valid(self, value) -> bool:
+        return value is not None and math.isfinite(value) and value >= -self._read_noise_allowance()
+
+    def _passes_read_threshold(self, value, threshold, direction) -> bool:
+        if not self._read_feedback_valid(value):
+            return False
+        margin = self._read_noise_allowance()
+        return value - margin > threshold if direction == "above" else value + margin < threshold
+
+    def _calibrate_read_feedback(self, raw, metadata, index, cell, capture):
+        profile = self._read_calibration
+        if profile is None or raw is None or not math.isfinite(raw):
+            return raw
+        if metadata.get("capture_device_id") != profile["device_id"]:
+            raise RuntimeError("Read calibration device identity missing or mismatched; programming stopped")
+        rate = str(metadata.get("capture_analog_sample_rate", ""))
+        if rate not in profile["offset_mV_by_sample_rate"]:
+            raise RuntimeError(f"Read calibration unavailable for captured sample rate {rate}")
+        offset = float(profile["offset_mV_by_sample_rate"][rate])
+        if not math.isfinite(offset):
+            raise RuntimeError("Invalid read calibration offset")
+        corrected = raw - offset * 1000.0 / self.config.shunt_ohms
+        self._append_jsonl("read_calibration.jsonl", {
+            "index": index, "cell": asdict(cell), "capture": str(capture),
+            "profile_id": profile["id"], "device_id": profile["device_id"],
+            "analog_sample_rate": int(rate), "raw_current_uA": raw,
+            "differential_offset_mV": offset, "corrected_current_uA": corrected,
+            "noise_allowance_uA": self._read_noise_allowance(),
+            "measurement_status": "near_zero" if abs(corrected) <= self._read_noise_allowance() else "resolved",
+            "read_voltage_V": self.config.read_rails.vcc_set_v,
+        })
+        return corrected
 
     @contextmanager
     def hardware_queue(self, operation: str) -> Iterator[None]:
@@ -409,6 +602,8 @@ class ScanDebugCellAPI:
             f"operation={operation} run_dir={self.config.run_dir} started={time.strftime('%Y-%m-%d %H:%M:%S %Z')}"
         )
         self._acquire_hardware_queue(host, token, owner, operation)
+        self._hardware_queue_lease = (host, token, owner, operation)
+        self._hardware_queue_ownership_lost = False
         try:
             yield
         finally:
@@ -416,9 +611,13 @@ class ScanDebugCellAPI:
                 self._wait_for_pending_capture_copies()
             finally:
                 try:
-                    self._stop_runtime_vio_daemon()
+                    if not self._hardware_queue_ownership_lost:
+                        self._stop_runtime_vio_daemon()
                 finally:
-                    self._release_hardware_queue(host, token, operation)
+                    try:
+                        self._release_hardware_queue(host, token, operation)
+                    finally:
+                        self._hardware_queue_lease = None
 
     def _acquire_hardware_queue(self, host: str, token: str, owner: str, operation: str) -> None:
         deadline = time.time() + max(1.0, self.config.hardware_queue_timeout_seconds)
@@ -765,10 +964,10 @@ class ScanDebugCellAPI:
                 pre_read: CellOperationResult | None = None
                 if operation in ("set", "reset"):
                     pre_read = self._pulse_and_capture(cell, "read", self.config.read_rails, f"read_before_{operation}")
-                    if pre_read.current_uA is not None and self._passes(pre_read.current_uA, sweep.threshold_uA, sweep.direction):
+                    if pre_read.current_uA is not None and self._passes_read_threshold(pre_read.current_uA, sweep.threshold_uA, sweep.direction):
                         confirms = self.confirm_reads(cell, sweep.confirm_reads, sweep.threshold_uA, sweep.direction)
-                        target_hit = all(
-                            item.current_uA is not None and self._passes(item.current_uA, sweep.threshold_uA, sweep.direction)
+                        target_hit = len(confirms) == sweep.confirm_reads and all(
+                            item.current_uA is not None and self._passes_read_threshold(item.current_uA, sweep.threshold_uA, sweep.direction)
                             for item in confirms
                         )
                         entry = {
@@ -794,11 +993,11 @@ class ScanDebugCellAPI:
                     "direction": sweep.direction,
                 }
                 results.append(entry)
-                if verify.current_uA is not None and self._passes(verify.current_uA, sweep.threshold_uA, sweep.direction):
+                if verify.current_uA is not None and self._passes_read_threshold(verify.current_uA, sweep.threshold_uA, sweep.direction):
                     confirms = self.confirm_reads(cell, sweep.confirm_reads, sweep.threshold_uA, sweep.direction)
                     entry["confirm_reads"] = [asdict(item) for item in confirms]
-                    target_hit = all(
-                        item.current_uA is not None and self._passes(item.current_uA, sweep.threshold_uA, sweep.direction)
+                    target_hit = len(confirms) == sweep.confirm_reads and all(
+                        item.current_uA is not None and self._passes_read_threshold(item.current_uA, sweep.threshold_uA, sweep.direction)
                         for item in confirms
                     )
                     best = verify
@@ -847,16 +1046,46 @@ class ScanDebugCellAPI:
         direction: Literal["above", "below"] = "above",
     ) -> list[CellOperationResult]:
         out: list[CellOperationResult] = []
-        for _ in range(count):
+        for _ in range(max(0, count) * 3):
             result = self._pulse_and_capture(cell, "read", self.config.read_rails, "confirm_read")
+            if result.feedback_attempts > 1:
+                out.clear()
+                self._append_progress("read", "Restarting stability count after a retried READ", confirmation="restart")
             out.append(result)
             if threshold_uA is not None and (
-                result.current_uA is None or not self._passes(result.current_uA, threshold_uA, direction)
+                result.current_uA is None or not self._passes_read_threshold(result.current_uA, threshold_uA, direction)
             ):
+                break
+            if len(out) >= count:
                 break
         return out
 
     def _pulse_and_capture(
+        self, cell: CellAddress, operation: Operation, rails: RailVoltages, stage: str,
+    ) -> CellOperationResult:
+        attempts = max(1, min(3, self.config.read_feedback_attempts)) if operation == "read" else 1
+        for attempt in range(1, attempts + 1):
+            try:
+                result = self._pulse_and_capture_once(cell, operation, rails, stage)
+            except RuntimeError as exc:
+                if operation != "read":
+                    raise
+                if attempt == attempts:
+                    self._append_progress(operation, "READ recovery attempts exhausted; programming stopped",
+                        ok=False, attempt=attempt, attempts=attempts, error=str(exc))
+                    raise
+                self._append_progress(operation, "READ failed: reinitializing if needed and retrying READ only",
+                    ok=False, attempt=attempt, attempts=attempts, recovery="read_only", error=str(exc))
+                time.sleep(0.5)
+                continue
+            if attempt > 1:
+                self._append_progress(operation, "Read feedback recovered; continuing with fresh measurement",
+                    ok=True, attempt=attempt, recovery="read_only")
+            result.feedback_attempts = attempt
+            return result
+        raise RuntimeError("Read feedback retry loop exhausted")
+
+    def _pulse_and_capture_once(
         self,
         cell: CellAddress,
         operation: Operation,
@@ -915,7 +1144,8 @@ class ScanDebugCellAPI:
                 except RuntimeError as fallback_exc:
                     summary_errors.append(f"attempt={attempt} synchronous fallback: {fallback_exc}")
                 if attempt >= max(1, self.config.attempts):
-                    raise RuntimeError(
+                    error_type = InvalidReadFeedbackError if operation == "read" else RuntimeError
+                    raise error_type(
                         f"capture summary failed index={index} kind={kind} after {attempt} attempts:\n"
                         + "\n".join(summary_errors)
                     ) from exc
@@ -925,15 +1155,27 @@ class ScanDebugCellAPI:
             operation=operation,
             packet=f"0x{packet:04x}",
             rails=rails,
-            current_uA=self._float_or_none(summary.get("la_set_window_mean_uA")),
+            current_uA=(self._calibrate_read_feedback(
+                self._float_or_none(summary.get("la_set_window_mean_uA")), summary, index, cell, local_output_dir
+            ) if operation == "read" else self._float_or_none(summary.get("la_set_window_mean_uA"))),
             decoded_packet=str(summary.get("decoded_packet", "")),
             ok=str(summary.get("ok")) == "True",
             local_output_dir=str(local_output_dir),
             error=str(summary.get("error", "")),
         )
+        invalid_feedback = operation == "read" and not self._read_feedback_valid(result.current_uA)
+        if invalid_feedback:
+            result.ok = False
+            result.error = (
+                f"Invalid read feedback for cell ({cell.row},{cell.col}): {result.current_uA} uA. "
+                f"Current is missing, non-finite, or below the calibrated near-zero allowance ({self._read_noise_allowance():g} uA); "
+                "check shunt measurement wiring and calibration before programming."
+            )
         self._append_manifest(index, stage, kind, result, bitstream, bits_lsb(packet))
+        if invalid_feedback:
+            raise InvalidReadFeedbackError(result.error)
         if not result.ok:
-            raise RuntimeError(f"capture decoded incorrectly: expected 0x{packet:04x}, got {result.decoded_packet}: {result.error}")
+            raise RuntimeError(f"Capture rejected: expected 0x{packet:04x}, got {result.decoded_packet}: {result.error}")
         return result
 
     def _program_pulse(
@@ -1415,15 +1657,11 @@ exit
             output_lines: list[str] = []
             reader_done = threading.Event()
 
-            def read_capture_stdout() -> None:
-                try:
-                    if capture_proc.stdout is not None:
-                        for line in capture_proc.stdout:
-                            output_lines.append(line)
-                finally:
-                    reader_done.set()
-
-            threading.Thread(target=read_capture_stdout, daemon=True).start()
+            threading.Thread(
+                target=self._stream_burst_output,
+                args=(capture_proc, output_lines, reader_done, attempt_log),
+                daemon=True,
+            ).start()
             armed = False
             arm_deadline = time.monotonic() + 60.0
             while time.monotonic() < arm_deadline:
@@ -1437,29 +1675,33 @@ exit
             program_rc = -1
             if armed:
                 self._append_progress("read-array", f"Programming FPGA for {burst_label}", mode="burst")
-                program_rc = self._program_fpga(
-                    bitstream,
-                    packet=packet,
-                    rails=rails,
-                    packet_count=max_cells,
-                )
-                self._append_progress("read-array", f"Saleae capturing {burst_label}", mode="burst")
+                try:
+                    program_rc = self._program_fpga(
+                        bitstream,
+                        packet=packet,
+                        rails=rails,
+                        packet_count=max_cells,
+                    )
+                except BaseException:
+                    if capture_proc.poll() is None:
+                        capture_proc.kill()
+                        capture_proc.wait(timeout=5)
+                    reader_done.wait(timeout=2)
+                    raise
+                self._append_progress("read-array", f"Waiting for {burst_label} capture/export", mode="burst")
             else:
                 self._append_progress("read-array", f"Saleae did not arm for {burst_label}", mode="burst")
                 capture_proc.terminate()
-            timed_out = False
             capture_timeout_s = (
                 self.config.full_array_burst_capture_timeout_seconds
                 if self.config.burst_capture_strategy == "single" and max_cells > 128
                 else self.config.burst_capture_timeout_seconds
             )
-            try:
-                capture_proc.wait(timeout=capture_timeout_s)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                capture_proc.kill()
-                capture_proc.wait()
-                output_lines.append(f"\nTIMEOUT after {capture_timeout_s:.0f}s waiting for Saleae burst capture\n")
+            timed_out = self._wait_burst_capture(
+                capture_proc, output_lines, capture_timeout_s,
+                max(60.0, self._burst_after_trigger_seconds(max_cells) + 30.0)
+                if self.config.burst_capture_strategy == "single" else capture_timeout_s,
+            )
             reader_done.wait(timeout=2.0)
             output = "".join(output_lines)
             attempt_log.write_text(output or "")
@@ -1482,9 +1724,25 @@ exit
             if timed_out:
                 reason += " timeout=true"
             failures.append(reason)
+            transport_lost = capture_rc == 255 or self._remote_transport_needs_retry(output)
+            if transport_lost and self._hardware_queue_lease is not None:
+                self._hardware_queue_ownership_lost = True
+            error = ("Capture SSH connection lost (VM/network interruption)" if transport_lost
+                     else "Capture completion timed out" if timed_out
+                     else "Burst capture/program failed")
+            self._append_progress(
+                "read-array", f"ERROR: {error}; attempt {attempt}/{attempts}",
+                mode="burst", ok=False, attempt=attempt, attempts=attempts,
+            )
+            with attempt_log.open("a") as handle:
+                handle.write(f"\nERROR: {error}; {reason}\n")
             if attempt < attempts:
                 should_restart = timed_out or self._saleae_needs_restart(output or "")
-                if self._dac_teensy_needs_reflash(output or ""):
+                if transport_lost or timed_out:
+                    self._append_progress("read-array", "Checking capture VM and hardware ownership before burst retry", mode="burst")
+                    self._reconnect_burst_capture(index, attempt)
+                    restarted_saleae = True
+                elif self._dac_teensy_needs_reflash(output or ""):
                     self._append_progress(
                         "read-array",
                         f"{burst_label.capitalize()}: reflashing DAC Teensy after serial write timeout",
@@ -1556,6 +1814,9 @@ exit
             raise RuntimeError(f"burst manifest missing: {burst_manifest}")
         with burst_manifest.open(newline="") as handle:
             rows = list(csv.DictReader(handle))
+        capture_metadata = {}
+        if self._read_calibration is not None:
+            capture_metadata = json.loads((local_output_dir / "manifest.json").read_text()).get("saleae", {})
         expected_packets = [int(str(row["packet"]), 16) for row in rows]
         expected_packet_set = set(expected_packets)
         rows_by_decoded_packet: dict[int, dict[str, str]] = {}
@@ -1577,7 +1838,11 @@ exit
             if cell is None:
                 continue
             packet_text = f"0x{packet:04x}"
-            current = self._float_or_none(row.get("la_set_mean_uA"))
+            current = self._calibrate_read_feedback(self._float_or_none(row.get("la_set_mean_uA")), {
+                "capture_device_id": capture_metadata.get("device_id"),
+                "capture_analog_sample_rate": capture_metadata.get("analog_sample_rate"),
+            }, next_index + offset, cell, local_output_dir)
+            valid_current = self._read_feedback_valid(current)
             result = CellOperationResult(
                 cell=cell,
                 operation="read",
@@ -1585,9 +1850,9 @@ exit
                 rails=self.config.read_rails,
                 current_uA=current,
                 decoded_packet=packet_text,
-                ok=True,
+                ok=valid_current,
                 local_output_dir=str(local_output_dir),
-                error=str(row.get("error", "")),
+                error=str(row.get("error", "")) if valid_current else "Invalid read feedback: negative or missing current",
             )
             self._append_manifest(next_index + offset, "array_burst", "read", result, bitstream, bits_lsb(packet))
             reads.append(
@@ -1889,6 +2154,84 @@ exit
         )
         return any(marker in output for marker in recovery_markers)
 
+    def _stream_burst_output(self, proc, lines: list[str], done: threading.Event, log: Path) -> None:
+        """Persist diagnostics while capture runs, not only after its exit."""
+        try:
+            with log.open("w", buffering=1) as handle:
+                if proc.stdout is not None:
+                    for line in proc.stdout:
+                        lines.append(line)
+                        handle.write(line)
+                        if line.startswith("BURST_STAGE "):
+                            self._append_progress("read-array", line.strip()[12:], mode="burst")
+                        elif self._remote_transport_needs_retry(line):
+                            self._append_progress("read-array", "ERROR: capture SSH connection lost; preparing recovery", mode="burst", ok=False)
+        finally:
+            done.set()
+
+    def _wait_burst_capture(self, proc, lines: list[str], total_timeout: float, capture_timeout: float) -> bool:
+        started = time.monotonic()
+        next_status = started + 15.0
+        while proc.poll() is None:
+            now = time.monotonic()
+            exported = any(line.startswith("BURST_STAGE ") for line in lines)
+            limit = total_timeout if exported else min(total_timeout, capture_timeout)
+            if now - started >= limit:
+                proc.kill()
+                proc.wait(timeout=5)
+                lines.append(f"\nERROR: burst {'export/analysis' if exported else 'capture completion'} timeout after {limit:.0f}s\n")
+                return True
+            if now >= next_status:
+                stage = "export/analysis" if exported else "capture completion"
+                self._append_progress("read-array", f"Waiting for burst {stage}: {now - started:.0f}s elapsed (limit {limit:.0f}s)", mode="burst")
+                next_status = now + 15.0
+            try:
+                proc.wait(timeout=min(2.0, max(0.01, limit - (now - started))))
+            except subprocess.TimeoutExpired:
+                pass
+        return False
+
+    def _reconnect_burst_capture(self, index: int, attempt: int) -> None:
+        """Recover READ capture only; never steal a lock after a VM reboot."""
+        deadline = time.monotonic() + 60.0
+        while True:
+            try:
+                result = self._run_saleae("true", timeout_s=10)
+                if result.returncode == 0:
+                    break
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Capture VM remains unreachable after 60s; burst retry stopped")
+            time.sleep(2)
+        self._restore_burst_queue_ownership()
+        self._restart_saleae_automation(index, "read_array_burst", attempt)
+        self._append_progress("read-array", "Capture service recovered; retrying burst READ (some cells may be read again)", mode="burst")
+
+    def _restore_burst_queue_ownership(self) -> None:
+        if self._hardware_queue_lease is None:
+            if self.config.hardware_queue_enabled and self.config.saleae_host and not self.config.dry_run:
+                raise RuntimeError("No hardware queue lease; refusing automatic burst retry")
+            return
+        host, token, owner, operation = self._hardware_queue_lease
+        self._hardware_queue_ownership_lost = True
+        lock = self._sh_quote(self.config.hardware_queue_dir)
+        # A reboot clears /tmp. Reclaim only an absent lock atomically; never
+        # apply stale-lock deletion while recovering an interrupted operation.
+        command = (
+            f"lock_dir={lock}; token={self._sh_quote(token)}; "
+            'if [ "$(cat "$lock_dir/token" 2>/dev/null)" = "$token" ]; then exit 0; fi; '
+            'if mkdir "$lock_dir" 2>/dev/null; then '
+            'printf "%s\\n" "$token" > "$lock_dir/token"; '
+            f'printf "%s\\n" {self._sh_quote(owner)} > "$lock_dir/owner"; '
+            'date +%s > "$lock_dir/started"; exit 0; fi; exit 1'
+        )
+        proc = self.runner.ssh(host, command, timeout_s=10)
+        if proc.returncode != 0:
+            raise RuntimeError("Hardware queue ownership changed after connection loss; burst retry stopped")
+        self._hardware_queue_ownership_lost = False
+        self._append_progress(operation, "Hardware queue ownership confirmed for burst recovery", queue="acquired")
+
     @staticmethod
     def _remote_transport_needs_retry(output: str) -> bool:
         markers = (
@@ -1898,6 +2241,9 @@ exit
             "No route to host",
             "Network is unreachable",
             "Connection reset by peer",
+            "Timeout, server ",
+            "Broken pipe",
+            "Connection closed by",
         )
         return any(marker in output for marker in markers)
 
@@ -2072,6 +2418,8 @@ PY
                 timeout_s=60,
             )
         restart_log.write_text(proc.stdout or "")
+        if proc.returncode != 0:
+            raise RuntimeError(f"Saleae restart/device check failed; see {restart_log}")
         return restart_log
 
     @staticmethod
@@ -2105,9 +2453,6 @@ PY
             return
         if self.config.zynq_os != "windows":
             raise RuntimeError("persistent FPGA runtime currently requires the Windows Zynq host")
-        if self.config.zynq_password:
-            raise RuntimeError("persistent FPGA runtime requires SSH key authentication")
-
         self._ensure_remote_fpga_sources()
         timeout_s = max(10.0, self.config.runtime_daemon_start_timeout_seconds)
         # Keep recovery commands separate. Compound CMD commands can leave the
@@ -2129,26 +2474,41 @@ PY
         full_command = f"cd {self.config.zynq_dir} && powershell -NoProfile -EncodedCommand {encoded}"
         log_path = self.config.run_dir / "runtime_vio_daemon_ssh.log"
         self._runtime_daemon_log_handle = log_path.open("a")
-        if self.config.zynq_host:
-            self._runtime_daemon_process = subprocess.Popen(
-                ["ssh", "-o", "ConnectTimeout=15", self.config.zynq_host, full_command],
-                stdin=subprocess.DEVNULL,
-                text=True,
-                stdout=self._runtime_daemon_log_handle,
-                stderr=subprocess.STDOUT,
-            )
-        else:
-            self._runtime_daemon_process = subprocess.Popen(
-                self._local_shell_command(full_command),
-                stdin=subprocess.DEVNULL,
-                text=True,
-                stdout=self._runtime_daemon_log_handle,
-                stderr=subprocess.STDOUT,
-            )
+        try:
+            if self.config.zynq_host and self.config.zynq_password:
+                self._runtime_daemon_process = self.runner.start_password_ssh_process(
+                    self.config.zynq_host,
+                    self.config.zynq_password,
+                    full_command,
+                    log=self._runtime_daemon_log_handle,
+                    timeout_s=15,
+                )
+            elif self.config.zynq_host:
+                self._runtime_daemon_process = subprocess.Popen(
+                    ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", self.config.zynq_host, full_command],
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    stdout=self._runtime_daemon_log_handle,
+                    stderr=subprocess.STDOUT,
+                )
+            else:
+                self._runtime_daemon_process = subprocess.Popen(
+                    self._local_shell_command(full_command),
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    stdout=self._runtime_daemon_log_handle,
+                    stderr=subprocess.STDOUT,
+                )
+        except BaseException:
+            self._runtime_daemon_log_handle.close()
+            self._runtime_daemon_log_handle = None
+            raise
 
         deadline = time.time() + timeout_s
         ready = False
         while time.time() < deadline:
+            if self._runtime_daemon_process.poll() is not None:
+                break
             try:
                 proc = self._run_zynq_cmd("dir /B runtime_vio_daemon.heartbeat", timeout_s=30)
             except subprocess.TimeoutExpired:
@@ -2161,8 +2521,15 @@ PY
             proc = self._run_zynq_cmd(f"type {remote_daemon_log}", timeout_s=10)
             if self._runtime_daemon_process and self._runtime_daemon_process.poll() is None:
                 self._runtime_daemon_process.terminate()
+                try:
+                    self._runtime_daemon_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self._runtime_daemon_process.kill()
+                    self._runtime_daemon_process.wait(timeout=3)
             if self._runtime_daemon_log_handle:
                 self._runtime_daemon_log_handle.close()
+                self._runtime_daemon_log_handle = None
+            self._runtime_daemon_process = None
             raise RuntimeError(proc.stdout or "persistent FPGA runtime daemon did not start")
         self._runtime_daemon_ready = True
 
@@ -2293,9 +2660,18 @@ PY
         return proc.returncode
 
     def _capture_local_path(self, remote_output_dir: str, index: int, kind: str, rails: RailVoltages) -> Path:
-        return self.config.run_dir / "raw" / (
-            f"{index}_{kind}_wl{round(rails.vcc_wl_set_v * 1000):.0f}_{Path(remote_output_dir).name}"
-        )
+        name = f"{index}_{kind}_wl{round(rails.vcc_wl_set_v * 1000):.0f}_{Path(remote_output_dir).name}"
+        local = self.config.run_dir / "raw" / name
+        if platform.system() == "Windows" and len(str(local.resolve())) > 180:
+            # Windows OpenSSH can fail at MAX_PATH even when Python created
+            # the directory. Reserve room for capture filenames and scp's /./.
+            # Keep the full stage/rails in the manifest; hash the full identity
+            # so different captures never alias just because labels truncate.
+            digest = hashlib.sha256(name.encode("utf-8")).hexdigest()[:12]
+            local = self.config.run_dir / "raw" / f"{index}_{digest}"
+            if len(str(local.resolve())) > 180:
+                raise RuntimeError("Capture root is too long for Windows transfers; use a shorter --run-dir")
+        return local
 
     def _copy_capture(self, remote_output_dir: str, index: int, kind: str, rails: RailVoltages) -> Path:
         local = self._capture_local_path(remote_output_dir, index, kind, rails)
@@ -2393,7 +2769,7 @@ PY
         tmp = self.config.run_dir / f"manifest_tmp_{index}_{kind}.csv"
         tmp.write_text(
             "index,phase,vcc_set_V,vcc_wl_set_V,packet,bits_lsb_first,remote_output_dir,local_output_dir,"
-            "ok,decoded_packet,la_set_window_mean_uA,la_reset_window_mean_uA,adc_read_uA,adc_set_uA,adc_reset_uA,error\n"
+            "ok,decoded_packet,la_set_window_mean_uA,la_reset_window_mean_uA,adc_read_uA,adc_set_uA,adc_reset_uA,error,capture_device_id,capture_analog_sample_rate\n"
         )
         proc = self.runner.run(
             [
@@ -2488,25 +2864,87 @@ PY
         return proc.returncode == 0
 
     def _write_remote_text(self, filename: str, text: str) -> None:
-        encoded = base64.b64encode(text.encode()).decode()
-        if self.config.zynq_os == "windows":
-            cmd = (
-                f"$b='{encoded}'; "
-                f"[IO.File]::WriteAllText('{filename}', [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b)))"
-            )
-            proc = self._run_zynq_powershell(cmd, timeout_s=60)
-        else:
-            proc = self._run_zynq(
-                f"python3 - <<'PY'\n"
-                f"import base64, pathlib\n"
-                f"pathlib.Path({filename!r}).write_bytes(base64.b64decode({encoded!r}))\n"
-                f"PY",
-                timeout_s=60,
-            )
+        # TCL/source text has the same transport limits as bitstreams.
+        self._write_remote_binary(filename, text.encode("utf-8"))
+
+    @staticmethod
+    def _validate_upload_filename(filename: str) -> None:
+        if not filename or filename in {".", ".."} or any(c in filename for c in "/\\:\r\n\x00"):
+            raise ValueError("Remote uploads require a filename within the configured Zynq directory")
+
+    @staticmethod
+    def _powershell_literal(value: str) -> str:
+        return "'" + value.replace("'", "''") + "'"
+
+    def _promote_verified_windows_upload(self, staged_name: str, filename: str, digest: str) -> None:
+        staged = self._powershell_literal(staged_name)
+        target = self._powershell_literal(filename)
+        proc = self._run_zynq_powershell(
+            "$ErrorActionPreference='Stop'; "
+            f"$stage=[IO.Path]::GetFullPath({staged}); $dest=[IO.Path]::GetFullPath({target}); "
+            f"if ((Get-FileHash -LiteralPath $stage -Algorithm SHA256).Hash -ne '{digest}') "
+            "{ throw 'Upload SHA256 mismatch; previous file retained' }; "
+            # Windows PowerShell coerces $null to an empty string for this
+            # .NET string parameter, which is not a legal backup path.
+            "if ([IO.File]::Exists($dest)) { [IO.File]::Replace($stage, $dest, [NullString]::Value) } "
+            "else { [IO.File]::Move($stage, $dest) }",
+            timeout_s=180,
+        )
         if proc.returncode != 0:
-            raise RuntimeError(proc.stdout)
+            raise RuntimeError(proc.stdout or f"Could not install verified upload {filename}")
+
+    def _write_remote_binary_sftp(self, filename: str, data: bytes) -> None:
+        """Password uploads are files, never encoded command-line arguments."""
+        self._validate_upload_filename(filename)
+        if self.config.dry_run:
+            return
+        remote_dir = self.config.zynq_dir.replace("\\", "/").rstrip("/")
+        staged_name = f".{filename}.{uuid.uuid4().hex}.upload"
+        remote_stage = f"{remote_dir}/{staged_name}"
+        remote_target = f"{remote_dir}/{filename}"
+        client = self.runner._open_password_ssh_client(
+            self.config.zynq_host, self.config.zynq_password, timeout_s=30,
+        )
+        sftp = None
+        installed = False
+        try:
+            sftp = client.open_sftp()
+            sftp.get_channel().settimeout(180)
+            sftp.putfo(io.BytesIO(data), remote_stage, file_size=len(data), confirm=True)
+            if self.config.zynq_os == "windows":
+                # Short command verifies the complete file and atomically
+                # replaces it; no dependency on the POSIX rename extension.
+                self._promote_verified_windows_upload(staged_name, filename, hashlib.sha256(data).hexdigest())
+            else:
+                remote_hash = hashlib.sha256()
+                with sftp.open(remote_stage, "rb") as uploaded:
+                    for block in iter(lambda: uploaded.read(131072), b""):
+                        remote_hash.update(block)
+                if remote_hash.digest() != hashlib.sha256(data).digest():
+                    raise RuntimeError(f"Upload SHA256 mismatch for {filename}; previous file retained")
+                sftp.posix_rename(remote_stage, remote_target)
+            installed = True
+        finally:
+            try:
+                if sftp is not None:
+                    try:
+                        if not installed:
+                            try:
+                                sftp.remove(remote_stage)
+                            except OSError:
+                                pass
+                    finally:
+                        sftp.close()
+            finally:
+                client.close()
 
     def _write_remote_binary(self, filename: str, data: bytes) -> None:
+        self._validate_upload_filename(filename)
+        if self.config.dry_run:
+            return
+        if self.config.zynq_host and self.config.zynq_password:
+            self._write_remote_binary_sftp(filename, data)
+            return
         scp_error = ""
         if self.config.zynq_host and not self.config.zynq_password:
             scp = shutil.which("scp")
@@ -2523,27 +2961,19 @@ PY
                     upload_path.unlink(missing_ok=True)
             if len(data) > 100_000:
                 raise RuntimeError(f"scp upload failed for {filename}: {scp_error or 'scp not found'}")
-        elif self.config.zynq_host and len(data) > 100_000:
-            self._write_remote_binary_chunked(filename, data)
-            return
-
-        encoded = base64.b64encode(data).decode()
-        # Encoded PowerShell commands hit Windows' command-line limit well
-        # before a source file is large enough for the old 100 kB fallback.
-        if self.config.zynq_host and self.config.zynq_os == "windows" and len(encoded) > 20_000:
-            self._write_remote_binary_chunked(filename, data)
-            return
         if self.config.zynq_os == "windows":
-            cmd = f"$b='{encoded}'; [IO.File]::WriteAllBytes('{filename}', [Convert]::FromBase64String($b))"
-            proc = self._run_zynq_powershell(cmd, timeout_s=180)
-        else:
-            proc = self._run_zynq(
-                f"python3 - <<'PY'\n"
-                f"import base64, pathlib\n"
-                f"pathlib.Path({filename!r}).write_bytes(base64.b64decode({encoded!r}))\n"
-                f"PY",
-                timeout_s=180,
-            )
+            # A bounded fallback for unavailable SCP; account for the final
+            # UTF-16/base64 expansion instead of testing the inner payload.
+            self._write_remote_binary_chunked(filename, data)
+            return
+        encoded = base64.b64encode(data).decode()
+        proc = self._run_zynq(
+            f"python3 - <<'PY'\n"
+            f"import base64, pathlib\n"
+            f"pathlib.Path({filename!r}).write_bytes(base64.b64decode({encoded!r}))\n"
+            f"PY",
+            timeout_s=180,
+        )
         if proc.returncode != 0:
             raise RuntimeError(proc.stdout)
 
@@ -2584,29 +3014,50 @@ PY
         return base64.b64decode(proc.stdout[start + len(marker):].strip())
 
     def _write_remote_binary_chunked(self, filename: str, data: bytes) -> None:
+        self._validate_upload_filename(filename)
+        if self.config.dry_run:
+            return
         encoded = base64.b64encode(data).decode()
-        chunk_chars = 48_000
+        chunk_chars = 2000 if self.config.zynq_os == "windows" else 48_000
         b64_name = f"{filename}.b64tmp"
         if self.config.zynq_os == "windows":
-            proc = self._run_zynq_powershell(
-                f"[IO.File]::WriteAllText('{b64_name}', '', [Text.Encoding]::ASCII)",
-                timeout_s=60,
-            )
-            if proc.returncode != 0:
-                raise RuntimeError(proc.stdout)
-            for offset in range(0, len(encoded), chunk_chars):
-                chunk = encoded[offset:offset + chunk_chars]
+            staged_name = f".{filename}.{uuid.uuid4().hex}.upload"
+            b64_name = staged_name + ".b64tmp"
+            b64_q = self._powershell_literal(b64_name)
+            staged_q = self._powershell_literal(staged_name)
+            try:
                 proc = self._run_zynq_powershell(
-                    f"[IO.File]::AppendAllText('{b64_name}', '{chunk}', [Text.Encoding]::ASCII)",
+                    f"$ErrorActionPreference='Stop'; [IO.File]::WriteAllText({b64_q}, '', [Text.Encoding]::ASCII)",
                     timeout_s=60,
                 )
                 if proc.returncode != 0:
                     raise RuntimeError(proc.stdout)
-            proc = self._run_zynq_powershell(
-                f"[IO.File]::WriteAllBytes('{filename}', [Convert]::FromBase64String([IO.File]::ReadAllText('{b64_name}'))); "
-                f"Remove-Item -Force '{b64_name}'",
-                timeout_s=180,
-            )
+                for offset in range(0, len(encoded), chunk_chars):
+                    chunk = encoded[offset:offset + chunk_chars]
+                    proc = self._run_zynq_powershell(
+                        f"$ErrorActionPreference='Stop'; [IO.File]::AppendAllText({b64_q}, '{chunk}', [Text.Encoding]::ASCII)",
+                        timeout_s=60,
+                    )
+                    if proc.returncode != 0:
+                        raise RuntimeError(proc.stdout)
+                proc = self._run_zynq_powershell(
+                    f"$ErrorActionPreference='Stop'; [IO.File]::WriteAllBytes({staged_q}, "
+                    f"[Convert]::FromBase64String([IO.File]::ReadAllText({b64_q})))",
+                    timeout_s=180,
+                )
+                if proc.returncode != 0:
+                    raise RuntimeError(proc.stdout)
+                self._promote_verified_windows_upload(staged_name, filename, hashlib.sha256(data).hexdigest())
+            finally:
+                # Only this attempt's uniquely named staging files are removed.
+                try:
+                    self._run_zynq_powershell(
+                        f"Remove-Item -LiteralPath {b64_q}, {staged_q} -Force -ErrorAction SilentlyContinue",
+                        timeout_s=30,
+                    )
+                except (OSError, RuntimeError, subprocess.TimeoutExpired):
+                    pass
+            return
         else:
             proc = self._run_zynq(f": > {self._sh_quote(b64_name)}", timeout_s=60)
             if proc.returncode != 0:
@@ -2658,7 +3109,11 @@ PY
 
     def _run_zynq_powershell(self, command: str, timeout_s: int | None = None) -> subprocess.CompletedProcess[str]:
         encoded = base64.b64encode(command.encode("utf-16le")).decode()
-        return self._run_zynq(f"powershell -NoProfile -EncodedCommand {encoded}", timeout_s=timeout_s)
+        shell_command = f"powershell -NoProfile -EncodedCommand {encoded}"
+        full_command = f"cd {self.config.zynq_dir} && {shell_command}"
+        if len(full_command.encode("utf-16le")) // 2 >= WINDOWS_REMOTE_COMMAND_LIMIT:
+            raise ValueError("Encoded Windows SSH command exceeds the safe command-line limit; transfer file contents using SFTP/SCP")
+        return self._run_zynq(shell_command, timeout_s=timeout_s)
 
     def _run_zynq_cmd(self, command: str, timeout_s: int | None = None) -> subprocess.CompletedProcess[str]:
         """Run native CMD syntax even when OpenSSH's configured shell is PowerShell."""
@@ -2709,7 +3164,10 @@ PY
         full_command = f"cd {self.config.saleae_dir} && {command}"
         if self.config.saleae_host:
             return subprocess.Popen(
-                ["ssh", "-o", "ConnectTimeout=15", self.config.saleae_host, full_command],
+                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                 "-o", "ServerAliveInterval=10", "-o", "ServerAliveCountMax=3",
+                 self.config.saleae_host, full_command],
+                stdin=subprocess.DEVNULL,
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
