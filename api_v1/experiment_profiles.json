@@ -1,0 +1,16 @@
+{
+  "profiles": [
+    {
+      "operation": "cycle",
+      "row": 0,
+      "col": 0,
+      "defaults": {
+        "set_threshold": 25.0,
+        "reset_threshold": 10.0,
+        "set_vcc_set": "2.3",
+        "reset_vcc_set": "2.3,2.7,3.1,3.3",
+        "confirm_reads": 10
+      }
+    }
+  ]
+}

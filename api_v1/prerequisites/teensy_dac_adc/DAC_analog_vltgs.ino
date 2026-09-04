@@ -323,7 +323,7 @@ static const float DAC_FULL_SCALE_VOLTS = 10.0f;
 static const int DAC3_VCC_WL_SET_FULL_SCALE_MV = 5000;
 static const int DAC6_VCC_SET_FULL_SCALE_MV = 10000;
 static const int DAC7_VDDIO_FULL_SCALE_MV = 5000;
-static const int VDDIO_TARGET_MV = 4000;
+static const int VDDIO_TARGET_MV = 4500;
 static const int DAC13_VDDA1_FULL_SCALE_MV = 5000;
 static const int DAC15_VDDC2_FULL_SCALE_MV = 5000;
 
@@ -438,7 +438,7 @@ void applyScanDebugCustomSetRails(int vccSetMv, int vccWlSetMv) {
   writeDacMilliVolts(dac[4], 0);          // Vcc_wl_reset
   writeVddioMilliVolts(VDDIO_TARGET_MV);   // VDDIO
   writeVdda1MilliVolts(5000);             // VDDa1
-  writeVddc2MilliVolts(2100);             // VDDc2
+  writeVddc2MilliVolts(1800);             // VCCD2: Caravel 1.8 V core rail
 }
 
 bool handleScanDebugCustomRails(const String &cmd) {
@@ -1335,7 +1335,7 @@ void dac_powerup_continuous_nonblocking() {
         dac_write(dac[12], voltsToDacPercent(1.6f));
         writeVdda1MilliVolts(5000);
         dac_write(dac[14], voltsToDacPercent(0.0f));
-        writeVddc2MilliVolts(2100);
+        writeVddc2MilliVolts(1800);
     }
 }
 
@@ -1348,7 +1348,7 @@ void dac_powerup_continuous() {
     dac_write(dac[2],  voltsToDacPercent(0.0f));   // DAC[2]  = old Vcc_set channel, kept low
     writeVccWlSetMilliVolts(2500);                 // DAC[3]  = 2.5V for Vcc_wl_set
     dac_write(dac[4],  voltsToDacPercent(0.0f));   // DAC[4]  = 0V for Vcc_wl_reset
-    writeVddioMilliVolts(VDDIO_TARGET_MV);          // DAC[7]  = 4.0V for Caravel VDDIO
+    writeVddioMilliVolts(VDDIO_TARGET_MV);          // DAC[7]  = 4.5V for external Caravel VDDIO
     writeVccSetMilliVolts(1700);                   // DAC[6]  = 1.7V for Vcc_set
     dac_write(dac[9],  voltsToDacPercent(0.5f));   // DAC[9]  = 0.5V
     dac_write(dac[10], voltsToDacPercent(0.9f));   // DAC[10] = 0.9V
@@ -1356,7 +1356,7 @@ void dac_powerup_continuous() {
     dac_write(dac[12], voltsToDacPercent(1.6f));   // DAC[12] = 1.6V
     writeVdda1MilliVolts(5000);                    // DAC[13] = 5.0V for VDDa1
     dac_write(dac[14], voltsToDacPercent(0.0f));   // DAC[14] unused for VDDa1
-    writeVddc2MilliVolts(2100);                    // DAC[15] = 2.1V
+    writeVddc2MilliVolts(1800);                    // DAC[15] = 1.8V Caravel core rail
     
     // All other DAC channels stay at 0V (they're already 0 from initialization)
     

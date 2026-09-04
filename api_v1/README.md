@@ -551,6 +551,7 @@ Rails controlled directly by the FPGA-connected DAC81416:
 | `Vcc_wl_set` | GPIO30 | DAC[3] | ramped by API |
 | `Vcc_wl_reset` | GPIO28 | DAC[4] | held `0 V` |
 | `Vcc_reset` | VDDA2 | DAC[5] | held `0 V` |
+| `VDDIO` | VDDIO | DAC[7] | held `4.5 V`; requires the board J5 3.3 V link to be disconnected |
 | `VDDA1` | VDDA1 | DAC[14] / external supply as configured | not changed by API |
 | `VDDC2` | VCCD2 | DAC[15] | not changed by API |
 
