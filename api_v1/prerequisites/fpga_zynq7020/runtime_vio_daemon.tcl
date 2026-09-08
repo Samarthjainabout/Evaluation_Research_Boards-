@@ -94,6 +94,28 @@ if {$reused} {
         puts "RUNTIME_VIO_REUSE_FAILED=$refresh_message"
         set reused 0
         set vio ""
+    } else {
+        # Reject older 64-bit runtime images without passive WB controls.
+        # WB-high-Z v9 publishes 3'b101 in status bits 21:19.
+        set candidate_inputs [get_hw_probes -quiet -of_objects $vio -filter {TYPE == vio_input}]
+        if {[llength $candidate_inputs] != 1} {
+            set reused 0
+            set vio ""
+        } elseif {[catch {
+            set candidate_status [normalized_hex64 [get_property INPUT_VALUE [lindex $candidate_inputs 0]] "runtime status"]
+            scan $candidate_status %llx candidate_status_value
+            set candidate_signature [expr {($candidate_status_value >> 19) & 7}]
+        } signature_message]} {
+            puts "RUNTIME_VIO_SIGNATURE_READ_FAILED=$signature_message"
+            set reused 0
+            set vio ""
+        } else {
+            if {$candidate_signature != 5} {
+                puts "BITSTREAM_SIGNATURE_MISMATCH=$candidate_status"
+                set reused 0
+                set vio ""
+            }
+        }
     }
 }
 if {!$reused} {

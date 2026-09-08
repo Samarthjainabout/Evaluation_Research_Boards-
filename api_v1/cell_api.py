@@ -28,8 +28,11 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SUMMARIZER = ROOT / "api_v1/tools/summarize_capture.py"
 DEFAULT_READ_CALIBRATION = ROOT / "api_v1/calibration/read_offset_A25E1BAA6577FA4D_0p5V.json"
 FPGA_BITSTREAM_DIR = ROOT / "api_v1/prerequisites/fpga_zynq7020/bitstreams"
-FPGA_RUNTIME_BITSTREAM = "caravel_scan_debug_runtime_dac81416_v2.bit"
-FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_v2.ltx"
+FPGA_RUNTIME_BITSTREAM = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.bit"
+FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.ltx"
+DEFAULT_WB_ADDRESS = 0x30000004
+DEFAULT_WB_READ_VALUE = 0x4002AA82
+DEFAULT_WB_WRITE_VALUE = 0x500888FF
 # Below CMD's 8191-character limit, including directory/shell wrappers.
 WINDOWS_REMOTE_COMMAND_LIMIT = 8000
 
@@ -73,6 +76,22 @@ MANIFEST_FIELDS = [
 
 
 Operation = Literal["read", "set", "reset"]
+
+
+def parse_u32(value: int | str, *, label: str = "32-bit value") -> int:
+    """Parse a decimal or 0x-prefixed value and enforce an unsigned word."""
+
+    try:
+        if isinstance(value, int):
+            parsed = value
+        else:
+            text = value.strip()
+            parsed = int(text, 16 if text.lower().startswith("0x") else 10)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be decimal or 0x-prefixed hexadecimal") from exc
+    if not 0 <= parsed <= 0xFFFFFFFF:
+        raise ValueError(f"{label} must be between 0x00000000 and 0xFFFFFFFF")
+    return parsed
 
 
 class InvalidReadFeedbackError(RuntimeError):
@@ -199,6 +218,11 @@ class ScanDebugConfig:
     dac_teensy_loader: str = "/home/ubuntu-24-04/teensy-tools-src/teensy_loader_cli_serial/teensy_loader_cli"
     dac_teensy_mcu: str = "TEENSY41"
     dac_teensy_hex: str = "/home/ubuntu-24-04/teensy-flash/build-DAC_analog_vltgs/DAC_analog_vltgs.ino.hex"
+    wishbone_remote_dir: str = "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode"
+    wishbone_flash_python: str = "/home/ubuntu-24-04/caravel_venv/bin/python3"
+    wishbone_flash_script: str = "../../util/caravel_hkflash.py"
+    wishbone_uart_timeout_seconds: float = 120.0
+    wishbone_wait_nonzero: bool = False
     hardware_queue_enabled: bool = True
     hardware_queue_host: str | None = None
     hardware_queue_dir: str = "/tmp/scan_debug_hardware_queue.lock"
@@ -943,6 +967,172 @@ class ScanDebugCellAPI:
         self._append_jsonl("cell_cycles.jsonl", result)
         return result
 
+    def wishbone_access(self, operation: Literal["read", "write"], value: int | str | None = None) -> dict[str, object]:
+        """Flash one native WB access and passively collect its FPGA UART frame."""
+
+        if operation not in {"read", "write"}:
+            raise ValueError(f"Wishbone operation must be read or write, got {operation!r}")
+        default_value = DEFAULT_WB_WRITE_VALUE if operation == "write" else DEFAULT_WB_READ_VALUE
+        write_value = default_value if value is None or value == "" else parse_u32(value)
+
+        operation_name = f"wb-{operation}"
+        profile = {"mode": "preserved", "updated": False}
+        result: dict[str, object] = {
+            "operation": operation_name,
+            "address": f"0x{DEFAULT_WB_ADDRESS:08X}",
+            "value": f"0x{write_value:08X}",
+            "command_value": f"0x{write_value:08X}",
+            "dac_profile": profile,
+            "dac_profile_applied": False,
+            "fpga_reset_applied": False,
+            "fpga_reset_planned": True,
+            "fpga_reset_assert_ms": 120,
+            "wb_test_pins": {"TM": "high-Z", "DR": "high-Z", "DL": "high-Z"},
+            "pll_changed": False,
+            "fpga_uart_capture": "passive-vio",
+            "dry_run": self.config.dry_run,
+            "ok": False,
+        }
+        if operation == "read":
+            result["read_setup_sequence"] = [
+                "0x00036472",
+                "0x462B000B",
+                "0x43201405",
+            ]
+            if write_value == 0x4002AA82:
+                result["read_setup_sequence"].append("0x4002AAFF")
+            elif write_value == 0x7FE2AA82:
+                result["read_setup_sequence"].append(f"0x{write_value:08X}")
+            result["read_setup_sequence"].append(
+                "0x7FF2AA82" if write_value == 0x7FE2AA82 else f"0x{write_value:08X}"
+            )
+            result["read_sequence_source"] = "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs"
+            result["read_post_ack_wb_cycles"] = 500
+            result["readback_attempts"] = 15
+            result["read_setup_sent_once"] = True
+            result["repeat_zero_behavior"] = "readbacks_only_no_setup_reissue"
+            result["uart_frame_per_readback_attempt"] = True
+        self._append_progress(
+            operation_name,
+            "Preserving DAC and PLL; FPGA reset-only pulse will follow the firmware flash",
+            dac_profile_applied=False,
+            fpga_reset_applied=False,
+        )
+
+        if self.config.dry_run:
+            result["uart_tag"] = "selected at runtime to differ from the previous FPGA frame"
+            result["ok"] = True
+            self._append_jsonl("wishbone_access.jsonl", result)
+            self._append_progress(operation_name, "Dry-run Wishbone access prepared", value=result["value"])
+            return result
+
+        self._ensure_runtime_bitstream()
+        self._stop_runtime_vio_daemon()
+        self._append_progress(operation_name, "Checking the passive FPGA UART receiver")
+        previous_uart = self._read_runtime_uart_passive(allow_stale_error=True)
+        if previous_uart["error"]:
+            self._append_progress(
+                operation_name,
+                "Ignoring stale FPGA UART error; waiting for a clean fresh tagged WB frame",
+            )
+        base_tag = 0x57 if operation == "write" else 0x52
+        previous_tag = int(previous_uart["tag"])
+        uart_tag = base_tag if not previous_uart["valid"] or previous_tag != base_tag else base_tag ^ 0x01
+
+        self._ensure_remote_wishbone_sources()
+        remote_dir = self._sh_quote(self.config.wishbone_remote_dir)
+        build_command = (
+            f"make -C {remote_dir} clean hex WB_OPERATION={operation} "
+            f"WB_WRITE_VALUE=0x{write_value:08X} WB_UART_TAG=0x{uart_tag:02X}"
+        )
+        build_log = self.config.run_dir / "wishbone_build.log"
+        build = self._run_saleae(build_command, timeout_s=180)
+        build_log.write_text(build.stdout or "")
+        if build.returncode != 0:
+            raise RuntimeError(f"Wishbone firmware build failed; see {build_log}")
+
+        self._append_progress(
+            operation_name,
+            "Caravel firmware built; flashing without FPGA reset or DAC update",
+            uart_tag=f"0x{uart_tag:02X}",
+        )
+
+        flash_python = self._sh_quote(self.config.wishbone_flash_python)
+        flash_script = self._sh_quote(self.config.wishbone_flash_script)
+        self._append_progress(operation_name, "Releasing the FTDI UART monitor for housekeeping flash")
+        release_uart = self._run_saleae(
+            "pkill -f '^picocom -b 9600 /dev/ttyUSB0$' >/dev/null 2>&1 || true; sleep 1",
+            timeout_s=10,
+        )
+        if release_uart.returncode != 0:
+            raise RuntimeError("Could not release the FTDI UART monitor before Wishbone firmware flash")
+        flash = self._run_saleae(
+            f"cd {remote_dir} && {flash_python} {flash_script} gui_wb_mode.hex",
+            timeout_s=180,
+        )
+        flash_log = self.config.run_dir / "wishbone_flash.log"
+        flash_log.write_text(flash.stdout or "")
+        if flash.returncode != 0:
+            raise RuntimeError(f"Wishbone firmware flash failed; see {flash_log}")
+
+        self._append_progress(
+            operation_name,
+            "Pulsing Caravel RESET from FPGA; TM, DR, and DL are high-impedance; DAC and PLL remain unchanged",
+        )
+        self._program_runtime_payload_once(self._runtime_reset_only_payload())
+        result["fpga_reset_applied"] = True
+
+        self._append_progress(
+            operation_name,
+            "Firmware flashed; passively reading UART through FPGA",
+            uart_wire="Caravel GPIO6 -> AX7020 J10-10",
+            wait_condition="15-readback-batch" if operation == "read" else "first-frame",
+            dac_profile_applied=False,
+            fpga_reset_applied=True,
+        )
+        if operation == "read":
+            readback_capture = self._read_runtime_uart_readbacks(
+                expected_base_tag=uart_tag,
+                count=15,
+                timeout_seconds=max(1.0, self.config.wishbone_uart_timeout_seconds),
+            )
+            readback_values = list(readback_capture["values"])
+            selected_value = next((item for item in readback_values if item != 0), readback_values[-1])
+            uart = {
+                "tag": uart_tag,
+                "value": selected_value,
+                "log": readback_capture["log"],
+                "nonzero_wait_timed_out": not any(readback_values),
+            }
+            result["readbacks"] = [f"0x{item:08X}" for item in readback_values]
+            result["readbacks_collected"] = len(readback_values)
+        else:
+            uart = self._read_runtime_uart_passive(
+                expected_tag=uart_tag,
+                timeout_seconds=max(1.0, self.config.wishbone_uart_timeout_seconds),
+                require_nonzero=False,
+            )
+        uart_log = self.config.run_dir / "wishbone_uart.log"
+        uart_log.write_text(str(uart["log"]))
+        if uart["tag"] != uart_tag:
+            raise RuntimeError(
+                f"Wishbone UART returned tag 0x{uart['tag']:02X}, expected 0x{uart_tag:02X}; see {uart_log}"
+            )
+
+        result.update({
+            "ok": True,
+            "firmware": f"{self.config.wishbone_remote_dir}/gui_wb_mode.hex",
+            "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> passive FPGA VIO",
+            "uart_tag": f"0x{uart['tag']:02X}",
+            "return_value": f"0x{uart['value']:08X}",
+            "nonzero": bool(uart["value"]),
+            "nonzero_wait_timed_out": bool(uart.get("nonzero_wait_timed_out", False)),
+            "uart": f"FPGA/VIO tag=0x{uart['tag']:02X} value=0x{uart['value']:08X}",
+        })
+        self._append_jsonl("wishbone_access.jsonl", result)
+        self._append_progress(operation_name, "Wishbone access complete", value=result["return_value"])
+        return result
+
     def _ramp_until(self, cell: CellAddress, operation: Operation, sweep: SweepConfig) -> dict[str, object]:
         if operation not in ("set", "reset"):
             raise ValueError("ramp operation must be set or reset")
@@ -1068,7 +1258,16 @@ class ScanDebugCellAPI:
             try:
                 result = self._pulse_and_capture_once(cell, operation, rails, stage)
             except RuntimeError as exc:
-                if operation != "read":
+                message = str(exc).lower()
+                transient_read_error = isinstance(exc, InvalidReadFeedbackError) or any(
+                    marker in message
+                    for marker in (
+                        "persistent fpga runtime command timed out",
+                        "capture summary failed",
+                        "samples=0",
+                    )
+                )
+                if operation != "read" or not transient_read_error:
                     raise
                 if attempt == attempts:
                     self._append_progress(operation, "READ recovery attempts exhausted; programming stopped",
@@ -1488,12 +1687,29 @@ exit
             "dac81416_spi.v",
             "caravel_scan_debug_runtime.v",
             "dac81416_runtime_spi.v",
+            "uart_rx_8n1.v",
             "caravel_scan_debug_fpga.xdc",
             "build_runtime_bitstream.tcl",
+            "program_runtime_only.tcl",
             "program_and_run_runtime.tcl",
+            "read_wb_uart_passive.tcl",
             "runtime_vio_daemon.tcl",
         ):
             self._write_remote_binary(filename, (source_dir / filename).read_bytes())
+
+    def _ensure_remote_wishbone_sources(self) -> None:
+        source_dir = ROOT / "api_v1/prerequisites/caravel_wishbone"
+        filenames = ("gui_wb_mode.c", "Makefile")
+        for filename in filenames:
+            self._write_remote_saleae_text(f".gui_wb_{filename}", (source_dir / filename).read_text())
+        remote_dir = self._sh_quote(self.config.wishbone_remote_dir)
+        copies = " && ".join(
+            f"cp -f {self._sh_quote(f'.gui_wb_{filename}')} {remote_dir}/{self._sh_quote(filename)}"
+            for filename in filenames
+        )
+        proc = self._run_saleae(f"mkdir -p {remote_dir} && {copies}", timeout_s=60)
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stdout or "could not install remote Wishbone firmware sources")
 
     def _ensure_runtime_bitstream(self, *, force: bool = False) -> str:
         if self.config.dry_run or (self._runtime_bitstream_ready and not force):
@@ -1509,6 +1725,7 @@ exit
             and self._remote_file_exists(FPGA_RUNTIME_BITSTREAM)
             and self._remote_file_exists(FPGA_RUNTIME_PROBES)
             and self._remote_file_exists("program_and_run_runtime.tcl")
+            and self._remote_file_exists("read_wb_uart_passive.tcl")
             and self._remote_file_exists("runtime_vio_daemon.tcl")
         )
         if not remote_ready:
@@ -2447,6 +2664,192 @@ PY
             | (vcc_wl_set_code << 9)
         )
         return f"0x{payload:016X}"
+
+    @staticmethod
+    def _runtime_wb_profile_payload() -> str:
+        # Bit 8 selects the WB support-rail profile.  Bit 63 is a placeholder;
+        # the runtime TCL flips the actual trigger relative to the VIO state.
+        return "0x8000000000000100"
+
+    @staticmethod
+    def _runtime_reset_only_payload() -> str:
+        # Bit 7 requests only the active-low Caravel reset pulse. Bit 63 is a
+        # placeholder; the runtime Tcl flips the actual trigger relative to
+        # the persistent VIO state.
+        return "0x8000000000000080"
+
+    def _program_runtime_payload_once(self, payload: str) -> int:
+        probes = FPGA_RUNTIME_PROBES
+        bitstream = FPGA_RUNTIME_BITSTREAM
+        if self.config.zynq_os == "windows":
+            command = (
+                f"& '{self.config.vivado_cmd}' -mode batch -source program_and_run_runtime.tcl "
+                f"-tclargs '{bitstream}' '{probes}' '{payload}' *> vivado_api_wb_profile.log; "
+                "$vivado_exit = $LASTEXITCODE; "
+                "Get-Process hw_server -ErrorAction SilentlyContinue | Stop-Process -Force; "
+                "Write-Output ('VIVADO_EXIT=' + $vivado_exit); exit $vivado_exit"
+            )
+            proc = self._run_zynq_powershell(command, timeout_s=180)
+        else:
+            proc = self._run_zynq(
+                f"{self.config.vivado_cmd} -mode batch -source program_and_run_runtime.tcl "
+                f"-tclargs {self._sh_quote(bitstream)} {self._sh_quote(probes)} {self._sh_quote(payload)}",
+                timeout_s=180,
+            )
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stdout or "could not apply FPGA runtime command")
+        return proc.returncode
+
+    def _program_runtime_payload_and_read_uart(
+        self,
+        payload: str,
+        *,
+        timeout_seconds: float,
+        require_nonzero: bool = False,
+    ) -> dict[str, int | str]:
+        probes = FPGA_RUNTIME_PROBES
+        bitstream = FPGA_RUNTIME_BITSTREAM
+        wait_ms = max(1000, round(timeout_seconds * 1000))
+        process_timeout = max(180, round(timeout_seconds + 90))
+        wait_mode = "wait_uart_nonzero" if require_nonzero else "wait_uart"
+        if self.config.zynq_os == "windows":
+            command = (
+                f"& '{self.config.vivado_cmd}' -mode batch -source program_and_run_runtime.tcl "
+                f"-tclargs '{bitstream}' '{probes}' '{payload}' '{wait_mode}' '{wait_ms}' "
+                "*> vivado_api_wb_uart.log; "
+                "$vivado_exit = $LASTEXITCODE; "
+                "Get-Content vivado_api_wb_uart.log; "
+                "Get-Process hw_server -ErrorAction SilentlyContinue | Stop-Process -Force; "
+                "Write-Output ('VIVADO_EXIT=' + $vivado_exit); exit $vivado_exit"
+            )
+            proc = self._run_zynq_powershell(command, timeout_s=process_timeout)
+        else:
+            proc = self._run_zynq(
+                f"{self.config.vivado_cmd} -mode batch -source program_and_run_runtime.tcl "
+                f"-tclargs {self._sh_quote(bitstream)} {self._sh_quote(probes)} "
+                f"{self._sh_quote(payload)} {wait_mode} {wait_ms}",
+                timeout_s=process_timeout,
+            )
+        output = proc.stdout or ""
+        if proc.returncode != 0:
+            raise RuntimeError(output or "could not read the framed Caravel UART result through FPGA VIO")
+        value_match = re.search(r"WB_UART_VALUE=0x([0-9A-Fa-f]{8})", output)
+        tag_match = re.search(r"WB_UART_TAG=0x([0-9A-Fa-f]{2})", output)
+        error_match = re.search(r"WB_UART_ERROR=([01])", output)
+        if not value_match or not tag_match or not error_match:
+            raise RuntimeError("Vivado did not return a complete framed Caravel UART result")
+        if error_match.group(1) != "0":
+            raise RuntimeError("FPGA reported a Caravel UART framing or checksum error")
+        return {
+            "value": int(value_match.group(1), 16),
+            "tag": int(tag_match.group(1), 16),
+            "log": output,
+        }
+
+    def _read_runtime_uart_passive(
+        self,
+        *,
+        expected_tag: int | None = None,
+        timeout_seconds: float = 1.0,
+        require_nonzero: bool = False,
+        allow_stale_error: bool = False,
+    ) -> dict[str, int | str | bool]:
+        """Read the UART VIO without programming FPGA outputs or resetting Caravel."""
+
+        probes = FPGA_RUNTIME_PROBES
+        process_timeout = max(60, round(timeout_seconds + 60))
+        if expected_tag is None:
+            tcl_args = f"'{probes}' snapshot"
+        else:
+            wait_ms = max(1000, round(timeout_seconds * 1000))
+            tcl_args = f"'{probes}' wait '0x{expected_tag:02X}' '{wait_ms}' '{int(require_nonzero)}'"
+
+        if self.config.zynq_os == "windows":
+            command = (
+                f"& '{self.config.vivado_cmd}' -mode batch -source read_wb_uart_passive.tcl "
+                f"-tclargs {tcl_args} *> vivado_api_wb_uart_passive.log; "
+                "$vivado_exit = $LASTEXITCODE; "
+                "Get-Content vivado_api_wb_uart_passive.log; "
+                "Get-Process hw_server -ErrorAction SilentlyContinue | Stop-Process -Force; "
+                "Write-Output ('VIVADO_EXIT=' + $vivado_exit); exit $vivado_exit"
+            )
+            proc = self._run_zynq_powershell(command, timeout_s=process_timeout)
+        else:
+            proc = self._run_zynq(
+                f"{self.config.vivado_cmd} -mode batch -source read_wb_uart_passive.tcl -tclargs {tcl_args}",
+                timeout_s=process_timeout,
+            )
+
+        output = proc.stdout or ""
+        value_match = re.search(r"WB_UART_VALUE=0x([0-9A-Fa-f]{8})", output)
+        tag_match = re.search(r"WB_UART_TAG=0x([0-9A-Fa-f]{2})", output)
+        valid_match = re.search(r"WB_UART_VALID=([01])", output)
+        error_match = re.search(r"WB_UART_ERROR=([01])", output)
+        signature_match = re.search(r"WB_UART_SIGNATURE=([0-7])", output)
+        if not all((value_match, tag_match, valid_match, error_match, signature_match)):
+            raise RuntimeError(output or "could not read passive Caravel UART status through FPGA VIO")
+
+        decoded: dict[str, int | str | bool] = {
+            "value": int(value_match.group(1), 16),
+            "tag": int(tag_match.group(1), 16),
+            "valid": valid_match.group(1) == "1",
+            "error": error_match.group(1) == "1",
+            "signature": int(signature_match.group(1)),
+            "nonzero_wait_timed_out": "WB_UART_NONZERO_TIMEOUT=1" in output,
+            "log": output,
+        }
+        if decoded["signature"] not in (5, 6, 7):
+            raise RuntimeError("The FPGA does not contain the UART-capable runtime image")
+        if expected_tag is not None and decoded["signature"] != 5:
+            raise RuntimeError("The FPGA does not contain the WB-high-Z UART v9 image")
+        if proc.returncode != 0 and not decoded["nonzero_wait_timed_out"]:
+            raise RuntimeError(output or "passive Caravel UART capture failed")
+        if expected_tag is not None and decoded["tag"] != expected_tag:
+            raise RuntimeError(
+                f"Passive FPGA UART returned tag 0x{decoded['tag']:02X}, expected 0x{expected_tag:02X}"
+            )
+        if decoded["error"] and not allow_stale_error:
+            raise RuntimeError("FPGA reported a Caravel UART framing or checksum error")
+        return decoded
+
+    def _read_runtime_uart_readbacks(
+        self,
+        *,
+        expected_base_tag: int,
+        count: int,
+        timeout_seconds: float,
+    ) -> dict[str, object]:
+        """Collect one tagged FPGA UART value for each WB readback attempt."""
+
+        probes = FPGA_RUNTIME_PROBES
+        wait_ms = max(1000, round(timeout_seconds * 1000))
+        process_timeout = max(60, round(timeout_seconds + 60))
+        tcl_args = f"'{probes}' collect '0x{expected_base_tag:02X}' '{wait_ms}' '{count}'"
+        if self.config.zynq_os == "windows":
+            command = (
+                f"& '{self.config.vivado_cmd}' -mode batch -source read_wb_uart_passive.tcl "
+                f"-tclargs {tcl_args} *> vivado_api_wb_uart_collect.log; "
+                "$vivado_exit = $LASTEXITCODE; "
+                "Get-Content vivado_api_wb_uart_collect.log; "
+                "Get-Process hw_server -ErrorAction SilentlyContinue | Stop-Process -Force; "
+                "Write-Output ('VIVADO_EXIT=' + $vivado_exit); exit $vivado_exit"
+            )
+            proc = self._run_zynq_powershell(command, timeout_s=process_timeout)
+        else:
+            proc = self._run_zynq(
+                f"{self.config.vivado_cmd} -mode batch -source read_wb_uart_passive.tcl -tclargs {tcl_args}",
+                timeout_s=process_timeout,
+            )
+        output = proc.stdout or ""
+        signature_match = re.search(r"WB_UART_SIGNATURE=([0-7])", output)
+        matches = re.findall(r"WB_UART_READBACK_(\d{2})=0x([0-9A-Fa-f]{8})", output)
+        indexed = {int(index): int(value, 16) for index, value in matches}
+        if not signature_match or int(signature_match.group(1)) != 5:
+            raise RuntimeError(output or "The FPGA does not contain the WB-high-Z UART v9 image")
+        if proc.returncode != 0 or len(indexed) != count:
+            raise RuntimeError(output or f"collected only {len(indexed)} of {count} WB readbacks")
+        values = [indexed[index] for index in range(1, count + 1)]
+        return {"values": values, "log": output}
 
     def _ensure_runtime_vio_daemon(self, bitstream: str = FPGA_RUNTIME_BITSTREAM) -> None:
         if self.config.dry_run or not self.config.persistent_fpga_runtime or self._runtime_daemon_ready:

@@ -2,8 +2,8 @@ set script_dir [file dirname [file normalize [info script]]]
 set project_name "vivado_project_scan_debug_runtime"
 set project_dir [file join $script_dir $project_name]
 set part_name "xc7z020clg400-2"
-set bit_name "caravel_scan_debug_runtime_dac81416_v2.bit"
-set probes_name "caravel_scan_debug_runtime_dac81416_v2.ltx"
+set bit_name "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.bit"
+set probes_name "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.ltx"
 
 if {[file exists $project_dir]} {
     file delete -force $project_dir
@@ -12,6 +12,7 @@ if {[file exists $project_dir]} {
 create_project $project_name $project_dir -part $part_name -force
 add_files [file join $script_dir "caravel_scan_debug_runtime.v"]
 add_files [file join $script_dir "dac81416_runtime_spi.v"]
+add_files [file join $script_dir "uart_rx_8n1.v"]
 set_property top caravel_scan_debug_runtime [current_fileset]
 add_files -fileset constrs_1 [file join $script_dir "caravel_scan_debug_fpga.xdc"]
 

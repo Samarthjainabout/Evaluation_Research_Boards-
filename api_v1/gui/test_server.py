@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from gui.server import DEFAULT_THRESHOLDS_UA, STATIC_DIR, _latest_heatmap_cells, _sweep_resume_info, _terminate_windows_process_tree, _read_progress_events
-from gui.server import _characterization_state, _manifest_for_run, _latest_run, _run_choices, _combined_cell_history
+from gui.server import _characterization_state, _manifest_for_run, _latest_run, _run_choices, _combined_cell_history, _parse_scan_debug_process, _latest_jsonl_object, _extract_error_message
 
 
 class CharacterizationGuiTests(unittest.TestCase):
@@ -44,6 +44,17 @@ class CharacterizationGuiTests(unittest.TestCase):
 
 
 class DefaultThresholdTests(unittest.TestCase):
+    def test_clean_wb_uart_status_is_not_reported_as_an_error(self):
+        log = '''
+#     puts "ERROR: timed out waiting for a fresh passive Caravel UART frame"
+WB_UART_VALID=1
+WB_UART_ERROR=0
+WB_UART_TAG=0x52
+WB_UART_VALUE=0x0007F363
+WB_UART_PASSIVE_MATCH=1
+'''
+        self.assertEqual(_extract_error_message(log), "")
+
     def test_capture_error_progress_is_not_marked_successful(self):
         with tempfile.TemporaryDirectory() as temp:
             run = Path(temp)
@@ -71,6 +82,39 @@ class HeatmapScaleTests(unittest.TestCase):
         self.assertIn('<span class="scale-bar">LINEAR</span>', index_html)
         self.assertNotIn('max="500"', index_html)
         self.assertEqual(index_html.count('max="300"'), 4)
+
+    def test_wishbone_controls_include_read_and_write_defaults(self) -> None:
+        app_js = (STATIC_DIR / "app.js").read_text()
+        index_html = (STATIC_DIR / "index.html").read_text()
+
+        self.assertIn('<option value="wb-read">WB read</option>', index_html)
+        self.assertIn('<option value="wb-write">WB write</option>', index_html)
+        self.assertIn('value="0x4002AA82"', index_html)
+        self.assertIn('DEFAULT_WB_READ_VALUE = "0x4002AA82"', app_js)
+        self.assertIn('DEFAULT_WB_WRITE_VALUE = "0x500888FF"', app_js)
+        self.assertIn('["wb-read", "wb-write"].includes(payload.operation)', app_js)
+        self.assertIn("all existing DAC/PLL values are preserved", app_js)
+        self.assertIn("applies one 120 ms reset-only pulse from FPGA to Caravel", app_js)
+        self.assertIn("the FPGA makes them high-impedance throughout WB mode", app_js)
+
+    def test_external_wishbone_command_retains_write_value(self) -> None:
+        command = "python api_v1/scan_debug_cli.py wb-write --wb-value 305441741 --run-dir api_v1/runs/wb"
+
+        parsed = _parse_scan_debug_process(command)
+
+        self.assertEqual(parsed["operation"], "wb-write")
+        self.assertEqual(parsed["wbValue"], "0x1234ABCD")
+
+    def test_wishbone_result_is_available_to_gui(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            result_path = Path(temp) / "wishbone_access.jsonl"
+            result_path.write_text('{"operation":"wb-read","return_value":"0x89ABCDEF","ok":true}\n')
+
+            result = _latest_jsonl_object(result_path)
+
+        self.assertEqual(result["return_value"], "0x89ABCDEF")
+        app_js = (STATIC_DIR / "app.js").read_text()
+        self.assertIn('RETURN: ${row.return_value || "no value"} via FPGA UART', app_js)
 
 
 class LatestHeatmapTests(unittest.TestCase):

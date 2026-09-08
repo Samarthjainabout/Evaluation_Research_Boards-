@@ -11,6 +11,7 @@ These bitstreams are checked in so the AX7020/Zynq FPGA can be reprogrammed afte
 | `caravel_scan_debug_fpga_active_20260822_050304.bit` | Active remote Zynq bitstream copied from `C:/Users/geethika/zynq_scan_debug/caravel_scan_debug_fpga.bit` on 2026-08-22. |
 | `caravel_scan_debug_fpga_read1405_repeat.bit` | Known-good read packet `0x1405`, cell `(5,0)`, copied from the chip1 cell (5,0) forming package. |
 | `caravel_scan_debug_fpga_set9405_repeat.bit` | Known-good set packet `0x9405`, cell `(5,0)`, copied from the chip1 cell (5,0) forming package. |
+| `caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.bit` + `.ltx` | Current universal runtime: passive Caravel UART on J10-10, FPGA reset support, and TM/DR/DL high-impedance in WB mode. |
 
 ## Reprogram After Reboot
 
@@ -37,6 +38,8 @@ python api_v1/scan_debug_cli.py build-array-bitstreams
 ## Checksums
 
 ```text
+7aafeee4f73fdf8c0c8cd1e2a5b7129b8d0f3a097cf7351dc66e78e879460f26  caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.bit
+88c661873bdb70fa0b4d876c000e20e3ac79d7bbef4efda72ba3ebf0a70e325e  caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.ltx
 0fac3db89f481c7160c806c34c4b2ed840af1ed3d54ffcc1cbf93531acfcd604  caravel_scan_debug_fpga_active_20260822_050304.bit
 6e231460d5ac1bc2a0cf584965fb5d6cb1a7ebcd4a20f2117c8a9a74ed05ca86  caravel_scan_debug_fpga_array_read_r00c00_burst.bit
 7b8d2fd804abb54855710cf3f4888946ad351fc361b860f330c0682b0b38cf99  caravel_scan_debug_fpga_array_read_r00c01_burst.bit

@@ -68,10 +68,16 @@
                 <option value="set">Set</option>
                 <option value="reset">Reset</option>
                 <option value="cycle">Cycle</option>
+                <option value="wb-read">WB read</option>
+                <option value="wb-write">WB write</option>
               </select>
             </label>
-            <label>Row <input id="rowInput" type="number" min="0" max="31" value="0"></label>
-            <label>Col <input id="colInput" type="number" min="0" max="31" value="0"></label>
+            <label id="rowField">Row <input id="rowInput" type="number" min="0" max="31" value="0"></label>
+            <label id="colField">Col <input id="colInput" type="number" min="0" max="31" value="0"></label>
+            <label id="wbValueField" class="wb-value-field" hidden>32-bit WB command
+              <input id="wbValueInput" type="text" value="0x4002AA82" maxlength="10" spellcheck="false" aria-describedby="wbValueHint">
+              <span id="wbValueHint">Decimal or 0x-prefixed hexadecimal; blank uses WB-read 0x4002AA82 and WB-write 0x500888FF.</span>
+            </label>
             <label class="password-field">Password <input id="zynqPasswordInput" type="password" autocomplete="off"></label>
             <label class="checkbox"><input id="dryRunInput" type="checkbox" checked> Dry run</label>
             <label id="resumeColField" class="resume-col-field" hidden>Resume col <input id="resumeColInput" type="number" min="0" max="31" value="0" disabled></label>

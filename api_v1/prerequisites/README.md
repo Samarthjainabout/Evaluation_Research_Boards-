@@ -7,6 +7,7 @@ This folder contains the source files needed to recreate the current scan-debug 
 - `fpga_zynq7020/`: AX7020/Zynq-7020 scan RTL plus direct DAC81416 SPI control, constraints, and Vivado programming TCL.
 - `teensy_dac_adc/`: legacy DAC/ADC Teensy firmware retained only for `--legacy-teensy-dac` fallback.
 - `saleae_ubuntu/`: Logic 2 automation capture helper used on the Ubuntu Saleae host.
+- `caravel_wishbone/`: GUI-driven native Wishbone read/write firmware with a framed UART response.
 
 ## Deployment Targets
 
@@ -25,6 +26,23 @@ Copy `saleae_ubuntu/run_fpga_scan0000_la12_15_capture.py` to:
 The default path does not require Teensy firmware. The API uses
 `caravel_scan_debug_runtime.v`, `dac81416_runtime_spi.v`, the XDC, and the
 runtime build/program TCL files to create and control one universal bitstream.
+
+WB read/write preserves the existing DAC registers, PLL configuration, and
+external 2 MHz clock. The FPGA holds TM, DR, and DL high-impedance, applies the
+Caravel reset pulse after firmware flashing, and passively captures GPIO6 UART.
+The separate `fpga_dac_full_wb/` one-shot image and `../dac_full_wb_run.py`
+reproduce the complete WB bench DAC profile when an explicit DAC reload is
+needed.
+
+WB read firmware always sends the three setup writes `0x00036472`,
+`0x462B000B`, and `0x43201405`. The default/legacy read adds `0x4002AAFF` and
+`0x4002AA82`. The r31c30 request adds `0x7FE2AA82` and then r31c31
+`0x7FF2AA82`. Fifteen readback values are framed on UART for API/GUI display.
+
+For WB return capture, connect Caravel `GPIO6/UART TX` to AX7020 `J10-10`
+(`V15`) and connect board grounds. Keep Caravel `J2` removed while flashing;
+the FPGA receives the 9600-baud framed result directly and exposes its 32-bit
+value through VIO to the API/GUI.
 
 ## Important Defaults
 

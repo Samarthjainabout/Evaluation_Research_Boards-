@@ -39,7 +39,7 @@ _manifest_cache: dict[Path, tuple[tuple[int, int], list[dict[str, Any]]]] = {}
 _heatmap_cache: dict[Path, tuple[tuple[int, int], dict[str, dict[str, Any]]]] = {}
 
 try:
-    from api_v1.cell_api import ScanDebugConfig
+    from api_v1.cell_api import DEFAULT_WB_READ_VALUE, DEFAULT_WB_WRITE_VALUE, ScanDebugConfig, parse_u32
 
     _DEFAULT_SCAN_CONFIG = ScanDebugConfig()
     DEFAULT_THRESHOLDS_UA = {
@@ -51,6 +51,20 @@ try:
         "reset": len(_DEFAULT_SCAN_CONFIG.reset_sweep.vcc_set_v) * len(_DEFAULT_SCAN_CONFIG.reset_sweep.vcc_wl_set_v),
     }
 except Exception:
+    DEFAULT_WB_READ_VALUE = 0x4002AA82
+    DEFAULT_WB_WRITE_VALUE = 0x500888FF
+    def parse_u32(value: int | str, *, label: str = "32-bit value") -> int:
+        try:
+            if isinstance(value, int):
+                parsed = value
+            else:
+                text = value.strip()
+                parsed = int(text, 16 if text.lower().startswith("0x") else 10)
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise ValueError(f"{label} must be decimal or 0x-prefixed hexadecimal") from exc
+        if not 0 <= parsed <= 0xFFFFFFFF:
+            raise ValueError(f"{label} must be between 0x00000000 and 0xFFFFFFFF")
+        return parsed
     DEFAULT_THRESHOLDS_UA = {"set": 70.0, "reset": 5.0}
     DEFAULT_SWEEP_PULSE_COUNTS = {"set": 112, "reset": 40}
 
@@ -195,7 +209,13 @@ def _run_updated_at(run_dir: Path) -> float:
     # continuously appended data files cover updates that do not create files.
     # Avoid globbing and stat'ing thousands of capture logs on every GUI poll.
     timestamps: list[float] = []
-    for path in (run_dir, _manifest_for_run(run_dir), run_dir / "progress.jsonl", run_dir / 'status.json'):
+    for path in (
+        run_dir,
+        _manifest_for_run(run_dir),
+        run_dir / "progress.jsonl",
+        run_dir / "wishbone_access.jsonl",
+        run_dir / 'status.json',
+    ):
         try:
             timestamps.append(path.stat().st_mtime)
         except OSError:
@@ -261,6 +281,21 @@ def _read_progress_events(run_dir: Path) -> list[dict[str, Any]]:
     return events[-4:]
 
 
+def _latest_jsonl_object(path: Path) -> dict[str, Any] | None:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
 def _log_event_order(path: Path) -> float:
     match = re.search(r"capture_(\d+).*?_attempt(\d+)", path.name)
     if match:
@@ -277,9 +312,15 @@ def _extract_error_message(text: str) -> str:
         line = raw_line.strip()
         if not line:
             continue
+        # Vivado batch logs echo Tcl source with a leading '#'.  Those lines can
+        # contain dormant ERROR messages and are not runtime failures.
+        if line.startswith("#"):
+            continue
         if line.startswith('{"progress":'):
             continue
         if re.fullmatch(r'"error"\s*:\s*""[,]?', line):
+            continue
+        if re.fullmatch(r"WB_UART_ERROR\s*=\s*0", line, flags=re.IGNORECASE):
             continue
         lines.append(line)
     priority = ("permission denied", "readtimeout", "deviceerror", "runtimeerror", "traceback", "exception", "error")
@@ -342,6 +383,7 @@ def _parse_scan_debug_process(command: str) -> dict[str, Any]:
     col = _int_or_none(flag_value("--col"))
     col_start = _int_or_none(flag_value("--col-start"))
     array_mode = flag_value("--array-mode")
+    wb_value = flag_value("--wb-value")
     run_dir = flag_value("--run-dir")
     if operation == "read-array" and array_mode == "burst":
         operation = "burst-read"
@@ -354,6 +396,11 @@ def _parse_scan_debug_process(command: str) -> dict[str, Any]:
         out["colStart"] = col_start
     if array_mode:
         out["arrayMode"] = array_mode
+    if wb_value:
+        try:
+            out["wbValue"] = f"0x{parse_u32(wb_value, label='WB command value'):08X}"
+        except ValueError:
+            out["wbValue"] = wb_value
     if run_dir:
         try:
             out["runDir"] = str(Path(run_dir).resolve().relative_to(ROOT))
@@ -673,6 +720,7 @@ def _summarize(run_dir: Path, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "readHistory": read_history[-160:],
         "logEvents": log_events,
         "progressEvents": progress_events,
+        "wishboneResult": _latest_jsonl_object(run_dir / "wishbone_access.jsonl"),
         "activeError": active_error,
         "arrayResume": _array_resume_info(run_dir, rows),
         "sweepResume": _sweep_resume_info(run_dir, rows),
@@ -764,8 +812,19 @@ class GuiHandler(SimpleHTTPRequestHandler):
         zynq_password = str(payload.get("zynqPassword", ""))
         dry_run = bool(payload.get("dryRun", False))
         confirmed = bool(payload.get("confirmHardware", False))
+        wb_value = DEFAULT_WB_READ_VALUE if operation == "wb-read" else DEFAULT_WB_WRITE_VALUE
+        if operation in {"wb-read", "wb-write"}:
+            try:
+                raw_wb_value = payload.get("wbValue", "")
+                wb_default_value = DEFAULT_WB_READ_VALUE if operation == "wb-read" else DEFAULT_WB_WRITE_VALUE
+                wb_value = wb_default_value if raw_wb_value in (None, "") else parse_u32(
+                    raw_wb_value, label="WB command value"
+                )
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
         if (
-            operation not in {"read", "set", "reset", "cycle", "read-array", "burst-read"}
+            operation not in {"read", "set", "reset", "cycle", "read-array", "burst-read", "wb-read", "wb-write"}
             or not (0 <= row < GRID_SIZE and 0 <= col < GRID_SIZE)
         ):
             self._send_json({"error": "Invalid operation or cell."}, HTTPStatus.BAD_REQUEST)
@@ -807,12 +866,21 @@ class GuiHandler(SimpleHTTPRequestHandler):
                 row = int(sweep_resume_info.get("row", row))
                 col = int(sweep_resume_info.get("col", col))
         else:
-            run_label = "full_array_burst" if operation == "burst-read" else "array" if operation == "read-array" else f"r{row:02d}c{col:02d}"
+            run_label = (
+                "full_array_burst" if operation == "burst-read"
+                else "array" if operation == "read-array"
+                else "wishbone" if operation in {"wb-read", "wb-write"}
+                else f"r{row:02d}c{col:02d}"
+            )
             run_dir = ROOT / "api_v1" / "runs" / f"gui_{time.strftime('%Y%m%d_%H%M%S')}_{run_label}_{operation}"
             run_dir.mkdir(parents=True, exist_ok=True)
         cmd = [sys.executable, str(ROOT / "api_v1" / "scan_debug_cli.py"), cli_operation, "--run-dir", str(run_dir)]
         command_env = os.environ.copy()
-        if operation not in {"read-array", "burst-read"}:
+        if operation in {"wb-read", "wb-write"}:
+            cmd.extend(["--wb-value", f"0x{wb_value:08X}"])
+            if operation == "wb-read":
+                cmd.extend(["--wishbone-wait-nonzero", "--wishbone-uart-timeout-seconds", "120"])
+        elif operation not in {"read-array", "burst-read"}:
             cmd.extend(["--row", str(row), "--col", str(col)])
         elif operation == "burst-read":
             row = 0
@@ -851,6 +919,7 @@ class GuiHandler(SimpleHTTPRequestHandler):
             "resume": is_resume,
             "row": row,
             "col": col,
+            "wbValue": f"0x{wb_value:08X}" if operation in {"wb-read", "wb-write"} else "",
             "runDir": str(run_dir.relative_to(ROOT)),
             "logPath": str(log_path.relative_to(ROOT)),
             "started": time.time(),
@@ -884,6 +953,7 @@ class GuiHandler(SimpleHTTPRequestHandler):
                     "arrayMode": item.get("arrayMode", ""),
                     "row": item.get("row"),
                     "col": item.get("col"),
+                    "wbValue": item.get("wbValue", ""),
                     "runDir": item.get("runDir"),
                     "started": item.get("started"),
                     **_active_capture_rails(proc.pid),

@@ -340,6 +340,7 @@ dt {
 .command-form .password-field,
 .command-form .checkbox,
 .command-form .resume-col-field,
+.command-form .wb-value-field,
 .command-form .command-buttons,
 .command-form p {
   grid-column: 1 / -1;
@@ -350,6 +351,10 @@ dt {
   gap: 4px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.wb-value-field span {
+  font-size: 11px;
 }
 
 .checkbox {

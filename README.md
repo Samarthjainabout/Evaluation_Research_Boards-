@@ -83,12 +83,14 @@ The control panel starts API commands from the browser when the GUI server was l
 
 | UI item | Meaning |
 |---|---|
-| `Op` | Command to run: `Read`, `Read array`, `Set`, `Reset`, or `Cycle`. |
+| `Op` | Command to run, including scan-debug operations plus native `WB read` and `WB write`. |
 | `Read` | Reads one selected cell. |
 | `Read array` | Reads the full 32 by 32 array column-by-column. |
 | `Set` | Programs the selected cell toward LRS. Default threshold is `166.7 uA` with read `Vcc_set=1.0 V`. |
 | `Reset` | Programs the selected cell toward HRS. Default threshold is `108.3 uA` with read `Vcc_set=1.0 V`. |
 | `Cycle` | Runs set/reset cycling on the selected cell. |
+| `WB read` | Runs the native setup/read sequence at `0x30000004`; blank defaults to `0x4002AA82`. It collects and displays all 15 FPGA UART/VIO readbacks. |
+| `WB write` | Writes the entered 32-bit value to `0x30000004`. Blank input uses `0x500888FF`. |
 | `Row` | Selected row, `0` to `31`. Ignored by full `Read array`. |
 | `Col` | Selected column, `0` to `31`. Ignored by full `Read array`. |
 | `Password` | Zynq SSH password for hardware-backed commands. The GUI sends it to the local API process but does not display it. |
@@ -135,11 +137,16 @@ The bottom chart shows read current and programming voltage history for the sele
 | SET threshold | `166.7 uA` |
 | RESET threshold | `108.3 uA` |
 | Read-array mode | Column-by-column burst |
+| WB read command | `0x4002AA82` when the field is blank |
+| WB write command | `0x500888FF` when the field is blank |
+| WB DAC behavior | Preserve all live DAC registers and the external 2 MHz clock/PLL state |
 
 ## Safety Notes
 
 - Keep `Dry run` checked unless you only want a simulation.
 - Unchecking `Dry run` sends commands to the hardware bench after confirmation.
 - Do not start a second hardware command while another API process is running.
+- WB operations rebuild and flash Caravel firmware. Confirm the FTDI housekeeping-SPI connection and remove `J2` before starting.
+- For FPGA UART return, wire Caravel `GPIO6/UART TX` to AX7020 `J10-10` and share ground. Remove Caravel `J2` before flashing and leave it removed; the FPGA captures UART directly, so it does not use the FTDI UART path.
 - The GUI can detect and display external `scan_debug_cli.py` processes, but killing them should be deliberate.
 - Older runs retain their own recorded thresholds and rails, so the trace may show old values even after defaults change.

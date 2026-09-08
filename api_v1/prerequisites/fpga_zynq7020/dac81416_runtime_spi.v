@@ -2,20 +2,26 @@
 
 // DAC81416 controller for the universal scan-debug bitstream.
 //
-// At FPGA configuration it restores the complete bench DAC setup.  Later,
-// update_i rewrites only DAC3 (Vcc_wl_set) and DAC6 (Vcc_set), allowing the
-// API to change pulse rails over JTAG/VIO without rebuilding the bitstream.
-module dac81416_runtime_spi (
+// By default FPGA configuration restores the complete bench DAC setup.
+// BOOT_INITIALIZE=0 starts with the SPI pins idle and preserves live DAC
+// registers. Later, update_i can explicitly select a scan or WB profile.
+module dac81416_runtime_spi #(
+    // The WB/reset-capable runtime must not rewrite live DAC registers merely
+    // because the FPGA bitstream is loaded. Runtime scan commands can still
+    // request an explicit profile update through update_i.
+    parameter BOOT_INITIALIZE = 1'b1
+) (
     input  wire        clk_i,
     input  wire        update_i,
+    input  wire        wb_profile_i,
     input  wire [15:0] vcc_set_code_i,
     input  wire [15:0] vcc_wl_set_code_i,
     output reg         sclk_o = 1'b0,
     output reg         sdi_o = 1'b0,
     output reg         cs_n_o = 1'b1,
     output wire        ldac_n_o,
-    output reg         initialized_o = 1'b0,
-    output reg         ready_o = 1'b0
+    output reg         initialized_o = BOOT_INITIALIZE ? 1'b0 : 1'b1,
+    output reg         ready_o = BOOT_INITIALIZE ? 1'b0 : 1'b1
 );
     localparam [2:0] SPI_IDLE = 3'd0;
     localparam [2:0] SPI_LOAD = 3'd1;
@@ -31,12 +37,29 @@ module dac81416_runtime_spi (
     // DAC7 uses the 0..5 V range: 0xCCCC = 4.0 V VDDIO.
     localparam [15:0] DEFAULT_VDDIO_CODE   = 16'hCCCC;
 
-    reg [2:0] state = SPI_LOAD;
+    // Existing scan-debug values for DAC9..DAC13.  Reapply these after a WB
+    // operation so selecting scan mode restores the previous configuration.
+    localparam [15:0] SCAN_DAC9_CODE  = 16'h0CCD;
+    localparam [15:0] SCAN_DAC10_CODE = 16'h170A;
+    localparam [15:0] SCAN_DAC11_CODE = 16'h0F5C;
+    localparam [15:0] SCAN_DAC12_CODE = 16'h28F6;
+    localparam [15:0] SCAN_DAC13_CODE = 16'hFFFF;
+
+    // WB-only voltages.  DAC9/11/12/13 use the configured 0..5 V span;
+    // DAC10 uses 0..10 V (range register 0x0C = 0x0101).
+    localparam [15:0] WB_IREF_DAC9_CODE       = 16'h199A; // 0.5 V
+    localparam [15:0] WB_VCOMP_DAC10_CODE     = 16'h170A; // 0.9 V
+    localparam [15:0] WB_BIAS_COMP2_DAC11_CODE = 16'h1EB8; // 0.6 V
+    localparam [15:0] WB_VBIAS_DAC12_CODE     = 16'h51EB; // 1.6 V
+    localparam [15:0] WB_DC_BIAS_DAC13_CODE   = 16'h3333; // 1.0 V
+
+    reg [2:0] state = BOOT_INITIALIZE ? SPI_LOAD : SPI_IDLE;
     reg [4:0] frame_index = 5'd0;
     reg [4:0] last_frame_index = 5'd23;
     reg [4:0] bit_index = 5'd23;
     reg [23:0] frame = 24'd0;
     reg runtime_update = 1'b0;
+    reg wb_profile = 1'b0;
     reg [15:0] vcc_set_code = DEFAULT_VCC_SET_CODE;
     reg [15:0] vcc_wl_set_code = DEFAULT_VCC_WL_CODE;
 
@@ -64,11 +87,11 @@ module dac81416_runtime_spi (
                 5'd14: initialization_frame = {8'h16, DEFAULT_VCC_SET_CODE};
                 5'd15: initialization_frame = {8'h17, DEFAULT_VDDIO_CODE};
                 5'd16: initialization_frame = 24'h180000;
-                5'd17: initialization_frame = 24'h190CCD;
-                5'd18: initialization_frame = 24'h1A170A;
-                5'd19: initialization_frame = 24'h1B0F5C;
-                5'd20: initialization_frame = 24'h1C28F6;
-                5'd21: initialization_frame = 24'h1DFFFF;
+                5'd17: initialization_frame = {8'h19, SCAN_DAC9_CODE};
+                5'd18: initialization_frame = {8'h1A, SCAN_DAC10_CODE};
+                5'd19: initialization_frame = {8'h1B, SCAN_DAC11_CODE};
+                5'd20: initialization_frame = {8'h1C, SCAN_DAC12_CODE};
+                5'd21: initialization_frame = {8'h1D, SCAN_DAC13_CODE};
                 5'd22: initialization_frame = 24'h1E0000;
                 // Legacy bench setting, not nominal: VCCD2 is normally 1.8 V.
                 5'd23: initialization_frame = 24'h1F6B85; // DAC15 VCCD2 ~= 2.1 V / 5 V
@@ -80,11 +103,27 @@ module dac81416_runtime_spi (
     function [23:0] update_frame;
         input [4:0] index;
         begin
-            case (index)
-                5'd0: update_frame = {8'h13, vcc_wl_set_code};
-                5'd1: update_frame = {8'h16, vcc_set_code};
-                default: update_frame = 24'h000000;
-            endcase
+            if (wb_profile) begin
+                case (index)
+                    5'd0: update_frame = {8'h19, WB_IREF_DAC9_CODE};
+                    5'd1: update_frame = {8'h1A, WB_VCOMP_DAC10_CODE};
+                    5'd2: update_frame = {8'h1B, WB_BIAS_COMP2_DAC11_CODE};
+                    5'd3: update_frame = {8'h1C, WB_VBIAS_DAC12_CODE};
+                    5'd4: update_frame = {8'h1D, WB_DC_BIAS_DAC13_CODE};
+                    default: update_frame = 24'h000000;
+                endcase
+            end else begin
+                case (index)
+                    5'd0: update_frame = {8'h13, vcc_wl_set_code};
+                    5'd1: update_frame = {8'h16, vcc_set_code};
+                    5'd2: update_frame = {8'h19, SCAN_DAC9_CODE};
+                    5'd3: update_frame = {8'h1A, SCAN_DAC10_CODE};
+                    5'd4: update_frame = {8'h1B, SCAN_DAC11_CODE};
+                    5'd5: update_frame = {8'h1C, SCAN_DAC12_CODE};
+                    5'd6: update_frame = {8'h1D, SCAN_DAC13_CODE};
+                    default: update_frame = 24'h000000;
+                endcase
+            end
         end
     endfunction
 
@@ -97,9 +136,10 @@ module dac81416_runtime_spi (
                 if (update_i) begin
                     vcc_set_code    <= vcc_set_code_i;
                     vcc_wl_set_code <= vcc_wl_set_code_i;
+                    wb_profile      <= wb_profile_i;
                     runtime_update  <= 1'b1;
                     frame_index     <= 5'd0;
-                    last_frame_index <= 5'd1;
+                    last_frame_index <= wb_profile_i ? 5'd4 : 5'd6;
                     ready_o         <= 1'b0;
                     state           <= SPI_LOAD;
                 end

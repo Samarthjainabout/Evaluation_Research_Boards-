@@ -13,6 +13,8 @@ const SET_TRACE_MARKER_US = 100;
 const HEATMAP_SCALE_MIN_UA = 0;
 const HEATMAP_SCALE_MAX_UA = 300;
 const LOG_DISPLAY_FLOOR_US = 0.2;
+const DEFAULT_WB_READ_VALUE = "0x4002AA82";
+const DEFAULT_WB_WRITE_VALUE = "0x500888FF";
 
 const els = {
   runSelect: document.getElementById("runSelect"),
@@ -35,8 +37,12 @@ const els = {
   chart: document.getElementById("chart"),
   commandForm: document.getElementById("commandForm"),
   operationInput: document.getElementById("operationInput"),
+  rowField: document.getElementById("rowField"),
+  colField: document.getElementById("colField"),
   rowInput: document.getElementById("rowInput"),
   colInput: document.getElementById("colInput"),
+  wbValueField: document.getElementById("wbValueField"),
+  wbValueInput: document.getElementById("wbValueInput"),
   zynqPasswordInput: document.getElementById("zynqPasswordInput"),
   dryRunInput: document.getElementById("dryRunInput"),
   resumeColField: document.getElementById("resumeColField"),
@@ -158,17 +164,19 @@ function renderFollowMode() {
 
 function renderMetrics(summary) {
   const last = summary?.last;
+  const wishboneResult = summary?.wishboneResult;
   const activeCell = summary?.lastCell;
   const lastReadCell = summary?.lastReadCell;
   els.lastCell.textContent = formatCell(lastReadCell);
   els.lastCurrent.textContent = formatCurrent(summary?.lastCurrent_uA);
 
-  const op = last?.operation || "--";
+  const op = last?.operation || wishboneResult?.operation || "--";
   els.activeCell.textContent = formatCell(activeCell);
   els.opCompact.textContent = op;
   els.packetCompact.textContent = last?.packet || "--";
   els.opDot.className = `dot ${op === "read" ? "read" : op === "--" ? "" : "program"}`;
-  els.apiSignal.className = `signal ${summary?.activeError ? "bad" : last ? (last.ok ? "good" : "bad") : ""}`;
+  const resultState = last || wishboneResult;
+  els.apiSignal.className = `signal ${summary?.activeError ? "bad" : resultState ? (resultState.ok ? "good" : "bad") : ""}`;
   renderTicker(summary);
 }
 
@@ -176,11 +184,13 @@ function renderTicker(summary) {
   const history = summary?.history || [];
   const logEvents = summary?.logEvents || [];
   const progressEvents = summary?.progressEvents || [];
+  const wishboneResult = summary?.wishboneResult;
   const running = (state.lastCommands || []).find((command) => command.running);
   const rows = [
     ...history,
     ...logEvents,
     ...progressEvents,
+    ...(wishboneResult ? [{ ...wishboneResult, source: "wishbone-result", eventOrder: Number.MAX_SAFE_INTEGER - 1 }] : []),
     ...(running ? [activeCommandEvent(running, summary)] : []),
   ]
     .sort((a, b) => eventOrder(a) - eventOrder(b))
@@ -235,6 +245,13 @@ function eventOrder(row) {
 }
 
 function formatApiEvent(row) {
+  if (row.source === "wishbone-result") {
+    if (row.dry_run) return `${String(row.operation || "WB").toUpperCase()}: dry run; no UART value`;
+    const readbacks = Array.isArray(row.readbacks) && row.readbacks.length
+      ? ` — ${row.readbacks.length} reads: ${row.readbacks.join(", ")}`
+      : "";
+    return `${String(row.operation || "WB").toUpperCase()} RETURN: ${row.return_value || "no value"} via FPGA UART${readbacks}`;
+  }
   if (row.source === "log") {
     return `ERROR: ${formatApiMessage(row.message)}`;
   }
@@ -712,8 +729,10 @@ function renderCommandState(commands) {
     if (running.operation && [...els.operationInput.options].some((option) => option.value === running.operation)) {
       els.operationInput.value = running.operation;
     }
+    syncOperationFields();
     if (Number.isFinite(running.row)) els.rowInput.value = running.row;
     if (Number.isFinite(running.col)) els.colInput.value = running.col;
+    if (running.wbValue) els.wbValueInput.value = running.wbValue;
     const target = running.operation === "burst-read"
       ? "full array burst"
       : running.operation === "read-array"
@@ -779,6 +798,25 @@ async function sendCommand(payload, targetText, extraText = "") {
   setTimeout(refresh, 900);
 }
 
+function syncOperationFields() {
+  const operation = els.operationInput.value;
+  const wishbone = operation === "wb-read" || operation === "wb-write";
+  els.rowField.hidden = wishbone;
+  els.colField.hidden = wishbone;
+  els.rowInput.disabled = wishbone;
+  els.colInput.disabled = wishbone;
+  els.wbValueField.hidden = !wishbone;
+  els.wbValueInput.disabled = !wishbone;
+  if (wishbone) {
+    const nextDefault = operation === "wb-read" ? DEFAULT_WB_READ_VALUE : DEFAULT_WB_WRITE_VALUE;
+    const staleDefault = operation === "wb-read" ? DEFAULT_WB_WRITE_VALUE : DEFAULT_WB_READ_VALUE;
+    const current = els.wbValueInput.value.trim().toUpperCase();
+    if (!current || current === staleDefault.toUpperCase()) {
+      els.wbValueInput.value = nextDefault;
+    }
+  }
+}
+
 els.runSelect.addEventListener("change", () => {
   state.manualRun = true;
   state.selectedRun = els.runSelect.value;
@@ -809,6 +847,7 @@ els.killBtn.addEventListener("click", async () => {
   setTimeout(refresh, 500);
 });
 els.operationInput.addEventListener("change", () => {
+  syncOperationFields();
   renderCommandState(state.lastCommands || []);
 });
 for (const eventName of ["input", "change"]) {
@@ -859,6 +898,7 @@ els.commandForm.addEventListener("submit", async (event) => {
     zynqPassword: els.zynqPasswordInput.value,
     dryRun: els.dryRunInput.checked,
   };
+  if (["wb-read", "wb-write"].includes(payload.operation)) payload.wbValue = els.wbValueInput.value.trim();
   const continueSelectedSweep = state.manualRun
     && ["set", "reset"].includes(payload.operation)
     && state.sweepResume?.operation === payload.operation
@@ -868,10 +908,16 @@ els.commandForm.addEventListener("submit", async (event) => {
     payload.row = state.sweepResume.row;
     payload.col = state.sweepResume.col;
   }
-  const target = payload.operation === "burst-read"
+  const target = payload.operation === "wb-read"
+    ? `WB read command ${payload.wbValue || DEFAULT_WB_READ_VALUE} at 0x30000004`
+    : payload.operation === "wb-write"
+    ? `0x30000004 with ${payload.wbValue || DEFAULT_WB_WRITE_VALUE}`
+    : payload.operation === "burst-read"
     ? "the full 32x32 array in one burst"
     : payload.operation === "read-array" ? `the array starting at column ${payload.col}` : `row ${payload.row}, col ${payload.col}`;
-  const extra = payload.operation === "burst-read"
+  const extra = payload.operation === "wb-read" || payload.operation === "wb-write"
+    ? "\n\nRequires Caravel GPIO6/UART TX wired to FPGA J10-10 and RESET wired from FPGA J10-3 to Caravel. TM, DR, and DL may remain connected: the FPGA makes them high-impedance throughout WB mode. The external 2 MHz clock and all existing DAC/PLL values are preserved. This closes picocom, flashes the native WB firmware, applies one 120 ms reset-only pulse from FPGA to Caravel, and passively reads the UART return through FPGA VIO."
+    : payload.operation === "burst-read"
     ? "\n\nThis will use one FPGA full-array stream and one Saleae capture. It is not the resumable column-by-column read."
     : payload.operation === "read-array"
     ? "\n\nThis will read columns from the selected start column through column 31."
@@ -882,6 +928,7 @@ els.commandForm.addEventListener("submit", async (event) => {
 });
 
 ensureGrid();
+syncOperationFields();
 syncCurrentRangeControls();
 refresh();
 setInterval(refresh, 2500);

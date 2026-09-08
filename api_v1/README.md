@@ -266,6 +266,10 @@ The CLI reads these environment variables when matching command-line flags are n
 | `SCAN_DEBUG_DAC_TEENSY_LOADER` | `--dac-teensy-loader` | `/home/ubuntu-24-04/teensy-tools-src/teensy_loader_cli_serial/teensy_loader_cli` |
 | `SCAN_DEBUG_DAC_TEENSY_MCU` | `--dac-teensy-mcu` | `TEENSY41` |
 | `SCAN_DEBUG_DAC_TEENSY_HEX` | `--dac-teensy-hex` | `/home/ubuntu-24-04/teensy-flash/build-DAC_analog_vltgs/DAC_analog_vltgs.ino.hex` |
+| `SCAN_DEBUG_WISHBONE_REMOTE_DIR` | `--wishbone-remote-dir` | `/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode` |
+| `SCAN_DEBUG_WISHBONE_FLASH_PYTHON` | `--wishbone-flash-python` | `/home/ubuntu-24-04/caravel_venv/bin/python3` |
+| `SCAN_DEBUG_WISHBONE_FLASH_SCRIPT` | `--wishbone-flash-script` | `../../util/caravel_hkflash.py` |
+| `SCAN_DEBUG_WISHBONE_UART_TIMEOUT_SECONDS` | `--wishbone-uart-timeout-seconds` | `120` |
 
 macOS/Linux example:
 
@@ -414,6 +418,43 @@ Build or refresh the one universal runtime bitstream and its VIO probes file:
 python api_v1/scan_debug_cli.py build-runtime-bitstream --force-bitstreams
 ```
 
+Native user-area Wishbone access at `0x30000004`:
+
+```bash
+python api_v1/scan_debug_cli.py wb-read
+python api_v1/scan_debug_cli.py wb-read --wb-value 0x7FE2AA82
+python api_v1/scan_debug_cli.py wb-write --wb-value 0x500888FF
+```
+
+Both WB modes accept decimal or `0x`-prefixed 32-bit command values. Their
+defaults are `0x4002AA82` for reads and `0x500888FF` for writes. WB operations
+preserve all live DAC registers and do not modify the PLL or external 2 MHz
+clock. They flash the selected Caravel firmware and use the FPGA only for the
+reset pulse and passive UART capture.
+
+Every WB read starts with `0x00036472`, `0x462B000B`, and `0x43201405`.
+The verified legacy/default sequence then sends `0x4002AAFF` followed by
+`0x4002AA82`. The r31c30 sequence sends `0x7FE2AA82` followed by the r31c31
+packet `0x7FF2AA82`; the returned value therefore follows the final r31c31
+command. Other entered values are sent once after the three setup writes.
+Firmware performs 15 register reads and emits one uniquely tagged UART frame
+for each value. The API reports all 15 values and selects the first nonzero
+value as `return_value`.
+
+The optional complete WB bench DAC profile is applied separately with
+`python api_v1/dac_full_wb_run.py`. It sets D0/D1/D2/D5/D7/D9-D13/D15 to
+`0.5/2.5/2.3/2.3/4.0/0.5/0.9/0.6/1.6/1.0/2.1 V`; D3/D4/D6/D8/D14 are
+powered down. Loading the WB runtime afterward preserves those registers.
+Before returning to scan-debug operations, restore the scan DAC range and
+power-state configuration; a scan runtime update changes channel data values
+but does not rewrite the DAC range or power-down registers.
+
+WB return values use a direct 9600-baud hardware path. Wire Caravel
+`GPIO6/UART TX` to AX7020 `J10-10` (`V15`, LVCMOS33) and connect the grounds.
+Remove Caravel jumper `J2` before flashing and leave it removed. After the
+flash, FPGA logic resets Caravel, validates the framed UART response, stores
+the 32-bit value in VIO, and publishes it in the GUI's **API return** panel.
+
 `build-array-bitstreams` remains as a compatibility alias and now produces the
 same single runtime image rather than 32 column-specific images.
 
@@ -448,10 +489,17 @@ FPGA files copied into this API folder:
 
 - [prerequisites/fpga_zynq7020/caravel_scan_debug_runtime.v](./prerequisites/fpga_zynq7020/caravel_scan_debug_runtime.v)
 - [prerequisites/fpga_zynq7020/dac81416_runtime_spi.v](./prerequisites/fpga_zynq7020/dac81416_runtime_spi.v)
+- [prerequisites/fpga_zynq7020/uart_rx_8n1.v](./prerequisites/fpga_zynq7020/uart_rx_8n1.v)
 - [prerequisites/fpga_zynq7020/caravel_scan_debug_fpga.xdc](./prerequisites/fpga_zynq7020/caravel_scan_debug_fpga.xdc)
 - [prerequisites/fpga_zynq7020/build_runtime_bitstream.tcl](./prerequisites/fpga_zynq7020/build_runtime_bitstream.tcl)
 - [prerequisites/fpga_zynq7020/program_and_run_runtime.tcl](./prerequisites/fpga_zynq7020/program_and_run_runtime.tcl)
 - [prerequisites/fpga_zynq7020/bitstreams](./prerequisites/fpga_zynq7020/bitstreams) contains the universal `.bit` and matching `.ltx` VIO probes file.
+
+GUI Wishbone firmware files:
+
+- [prerequisites/caravel_wishbone/gui_wb_mode.c](./prerequisites/caravel_wishbone/gui_wb_mode.c)
+- [prerequisites/caravel_wishbone/Makefile](./prerequisites/caravel_wishbone/Makefile)
+- [dac_full_wb_run.py](./dac_full_wb_run.py) and [prerequisites/fpga_dac_full_wb](./prerequisites/fpga_dac_full_wb) reproduce the complete WB DAC profile.
 
 Teensy DAC/ADC firmware copied into this API folder:
 
@@ -485,11 +533,12 @@ Local summarizer used by the API:
    ```text
    caravel_scan_debug_runtime.v
    dac81416_runtime_spi.v
+   uart_rx_8n1.v
    caravel_scan_debug_fpga.xdc
    build_runtime_bitstream.tcl
    program_and_run_runtime.tcl
-   caravel_scan_debug_runtime_dac81416_v2.bit
-   caravel_scan_debug_runtime_dac81416_v2.ltx
+   caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.bit
+   caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.ltx
    ```
 
    The API automatically uploads these files. Read, set, reset, cycle, serial
@@ -593,6 +642,7 @@ FPGA to Caravel and Saleae digital probes:
 | `wb_clk_i` / XCLK | Xclk | J10-16 / U14 | 8 |
 | `rst_b` | Reset | J10-3 / W19 | 7 |
 | `ready` | GPIO1 | J10-4 / W18 | 6 |
+| `caravel_uart_tx_i` | GPIO6 / UART TX | J10-10 / V15 | — |
 | `TM` | GPIO36 | J10-5 / R14 | 9 |
 | `ScanInDR` | GPIO21 | J10-9 / W15 | 11 |
 | `ScanInDL` | GPIO22 | J10-7 / Y17 | 10 |

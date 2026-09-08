@@ -15,6 +15,9 @@ try:
         RESET_PROGRAM_VCC_WL_V,
         SET_PROGRAM_VCC_SET_V,
         SET_PROGRAM_VCC_WL_V,
+        DEFAULT_WB_READ_VALUE,
+        DEFAULT_WB_WRITE_VALUE,
+        parse_u32,
         RailVoltages,
         ScanDebugCellAPI,
         ScanDebugConfig,
@@ -27,6 +30,9 @@ except ImportError:
         RESET_PROGRAM_VCC_WL_V,
         SET_PROGRAM_VCC_SET_V,
         SET_PROGRAM_VCC_WL_V,
+        DEFAULT_WB_READ_VALUE,
+        DEFAULT_WB_WRITE_VALUE,
+        parse_u32,
         RailVoltages,
         ScanDebugCellAPI,
         ScanDebugConfig,
@@ -96,6 +102,11 @@ def build_config(args: argparse.Namespace) -> ScanDebugConfig:
         dac_teensy_loader=args.dac_teensy_loader,
         dac_teensy_mcu=args.dac_teensy_mcu,
         dac_teensy_hex=args.dac_teensy_hex,
+        wishbone_remote_dir=args.wishbone_remote_dir,
+        wishbone_flash_python=args.wishbone_flash_python,
+        wishbone_flash_script=args.wishbone_flash_script,
+        wishbone_uart_timeout_seconds=args.wishbone_uart_timeout_seconds,
+        wishbone_wait_nonzero=args.wishbone_wait_nonzero,
         hardware_queue_enabled=not args.disable_hardware_queue,
         hardware_queue_host=args.hardware_queue_host or None,
         hardware_queue_dir=args.hardware_queue_dir,
@@ -144,6 +155,8 @@ def main() -> int:
             "reset",
             "cycle",
             "read-array",
+            "wb-read",
+            "wb-write",
             "build-runtime-bitstream",
             "build-array-bitstreams",
         ],
@@ -244,6 +257,28 @@ def main() -> int:
     parser.add_argument("--dac-teensy-loader", default=os.environ.get("SCAN_DEBUG_DAC_TEENSY_LOADER", "/home/ubuntu-24-04/teensy-tools-src/teensy_loader_cli_serial/teensy_loader_cli"))
     parser.add_argument("--dac-teensy-mcu", default=os.environ.get("SCAN_DEBUG_DAC_TEENSY_MCU", "TEENSY41"))
     parser.add_argument("--dac-teensy-hex", default=os.environ.get("SCAN_DEBUG_DAC_TEENSY_HEX", "/home/ubuntu-24-04/teensy-flash/build-DAC_analog_vltgs/DAC_analog_vltgs.ino.hex"))
+    parser.add_argument("--wb-value", default="",
+                        help=(
+                            "32-bit decimal or 0x-prefixed command for WB read/write; "
+                            f"defaults: wb-read=0x{DEFAULT_WB_READ_VALUE:08X}, "
+                            f"wb-write=0x{DEFAULT_WB_WRITE_VALUE:08X}"
+                        ))
+    parser.add_argument("--wishbone-remote-dir", default=os.environ.get(
+        "SCAN_DEBUG_WISHBONE_REMOTE_DIR",
+        "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode",
+    ))
+    parser.add_argument("--wishbone-flash-python", default=os.environ.get(
+        "SCAN_DEBUG_WISHBONE_FLASH_PYTHON", "/home/ubuntu-24-04/caravel_venv/bin/python3"))
+    parser.add_argument("--wishbone-flash-script", default=os.environ.get(
+        "SCAN_DEBUG_WISHBONE_FLASH_SCRIPT", "../../util/caravel_hkflash.py"))
+    parser.add_argument("--wishbone-uart-timeout-seconds", type=float, default=float(os.environ.get(
+        "SCAN_DEBUG_WISHBONE_UART_TIMEOUT_SECONDS", "120")))
+    parser.add_argument(
+        "--wishbone-wait-nonzero",
+        action="store_true",
+        default=os.environ.get("SCAN_DEBUG_WISHBONE_WAIT_NONZERO", "0") == "1",
+        help="for wb-read, keep waiting until the framed UART return value is nonzero",
+    )
     parser.add_argument("--disable-hardware-queue", action="store_true", default=os.environ.get("SCAN_DEBUG_DISABLE_HARDWARE_QUEUE", "0") == "1")
     parser.add_argument("--hardware-queue-host", default=os.environ.get("SCAN_DEBUG_HARDWARE_QUEUE_HOST", ""))
     parser.add_argument("--hardware-queue-dir", default=os.environ.get("SCAN_DEBUG_HARDWARE_QUEUE_DIR", "/tmp/scan_debug_hardware_queue.lock"))
@@ -252,8 +287,21 @@ def main() -> int:
     parser.add_argument("--hardware-queue-stale-seconds", type=float, default=float(os.environ.get("SCAN_DEBUG_HARDWARE_QUEUE_STALE_SECONDS", "43200")))
     args = parser.parse_args()
     apply_saved_experiment_defaults(args, sys.argv[1:])
-    if args.operation not in {"read-array", "build-runtime-bitstream", "build-array-bitstreams"} and args.row is None:
-        parser.error("--row is required unless operation is read-array or a bitstream build")
+    if args.operation not in {"read-array", "wb-read", "wb-write", "build-runtime-bitstream", "build-array-bitstreams"} and args.row is None:
+        parser.error("--row is required for cell operations")
+    if args.operation in {"wb-read", "wb-write"}:
+        try:
+            if args.wb_value not in (None, ""):
+                args.wb_value = parse_u32(args.wb_value, label="--wb-value")
+        except ValueError as exc:
+            parser.error(str(exc))
+
+    selected_wb_value: int | None = None
+    if args.operation in {"wb-read", "wb-write"}:
+        if args.wb_value in (None, ""):
+            selected_wb_value = DEFAULT_WB_READ_VALUE if args.operation == "wb-read" else DEFAULT_WB_WRITE_VALUE
+        else:
+            selected_wb_value = args.wb_value
 
     api = ScanDebugCellAPI(build_config(args))
     api._append_jsonl("experiment_settings.jsonl", {
@@ -265,6 +313,8 @@ def main() -> int:
         "set_wl_V": api.config.set_sweep.vcc_wl_set_v,
         "reset_wl_V": api.config.reset_sweep.vcc_wl_set_v,
         "confirm_reads": args.confirm_reads, "noise_allowance_uA": api._read_noise_allowance(),
+        "wb_command_value": f"0x{selected_wb_value:08X}" if selected_wb_value is not None else None,
+        "wb_write_value": f"0x{selected_wb_value:08X}" if selected_wb_value is not None else None,
     })
     with api.hardware_queue(args.operation):
         if args.operation == "cycle":
@@ -281,6 +331,10 @@ def main() -> int:
             result = api.cycle_cell(args.row, args.col)
         elif args.operation == "read-array":
             result = api.read_array(args.row_start, args.row_end, args.col_start, args.col_end, mode=args.array_mode)
+        elif args.operation == "wb-read":
+            result = api.wishbone_access("read", args.wb_value)
+        elif args.operation == "wb-write":
+            result = api.wishbone_access("write", args.wb_value)
         else:
             result = api.prebuild_array_column_bitstreams(
                 row_start=args.row_start,
