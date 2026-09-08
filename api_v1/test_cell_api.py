@@ -796,6 +796,10 @@ class FpgaDacBitstreamTests(unittest.TestCase):
         self.assertEqual((payload >> 41) & 0x7FF, 32)
         self.assertEqual((payload >> 25) & 0xFFFF, round(0.5 * 65535 / 10.0))
         self.assertEqual((payload >> 9) & 0xFFFF, round(2.5 * 65535 / 5.0))
+        # Ordinary scan commands clear both special-mode bits, switching
+        # TM/DR/DL back from WB high-Z to active scan-debug outputs.
+        self.assertEqual((payload >> 8) & 1, 0)
+        self.assertEqual((payload >> 7) & 1, 0)
 
     def test_runtime_programming_uses_universal_bitstream_and_vio_payload(self) -> None:
         api = ScanDebugCellAPI(ScanDebugConfig(dry_run=False, persistent_fpga_runtime=False))
@@ -1035,6 +1039,7 @@ class WishboneModeTests(unittest.TestCase):
         self.assertIn("wb_controls_high_z ? 1'bz : caravel_tm_r", runtime)
         self.assertIn("wb_controls_high_z ? 1'bz : caravel_scan_se_r", runtime)
         self.assertIn("wb_controls_high_z ? 1'bz : caravel_scan_si_r", runtime)
+        self.assertIn("wb_controls_high_z <= runtime_command[8] || runtime_command[7]", runtime)
         self.assertNotIn("PULLDOWN true [get_ports caravel_tm_o]", xdc)
         self.assertNotIn("PULLUP true [get_ports caravel_scan_se_o]", xdc)
         self.assertNotIn("PULLDOWN true [get_ports caravel_scan_si_o]", xdc)

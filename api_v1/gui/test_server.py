@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from gui.server import DEFAULT_THRESHOLDS_UA, STATIC_DIR, _latest_heatmap_cells, _sweep_resume_info, _terminate_windows_process_tree, _read_progress_events
 from gui.server import _characterization_state, _manifest_for_run, _latest_run, _run_choices, _combined_cell_history, _parse_scan_debug_process, _latest_jsonl_object, _extract_error_message
+from gui.server import API_CAPABILITIES, _normalize_api_operation
 
 
 class CharacterizationGuiTests(unittest.TestCase):
@@ -44,6 +45,20 @@ class CharacterizationGuiTests(unittest.TestCase):
 
 
 class DefaultThresholdTests(unittest.TestCase):
+    def test_scan_debug_and_wishbone_are_namespaced_without_breaking_legacy_operations(self):
+        self.assertEqual(_normalize_api_operation("scan-debug", "read"), ("scan-debug", "read"))
+        self.assertEqual(_normalize_api_operation("wishbone", "read"), ("wishbone", "wb-read"))
+        self.assertEqual(_normalize_api_operation("wishbone", "write"), ("wishbone", "wb-write"))
+        self.assertEqual(_normalize_api_operation("", "wb-read"), ("wishbone", "wb-read"))
+        self.assertIn("read", API_CAPABILITIES["scan-debug"])
+        self.assertIn("read", API_CAPABILITIES["wishbone"])
+
+    def test_api_mode_rejects_cross_interface_operations(self):
+        with self.assertRaisesRegex(ValueError, "not available in scan-debug mode"):
+            _normalize_api_operation("scan-debug", "wb-read")
+        with self.assertRaisesRegex(ValueError, "not available in wishbone mode"):
+            _normalize_api_operation("wishbone", "set")
+
     def test_clean_wb_uart_status_is_not_reported_as_an_error(self):
         log = '''
 #     puts "ERROR: timed out waiting for a fresh passive Caravel UART frame"

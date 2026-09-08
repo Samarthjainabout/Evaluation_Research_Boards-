@@ -33,6 +33,12 @@ def _conductance_uS(current_uA: Any) -> float | None:
     return value / READ_CONDUCTANCE_VOLTAGE_V if value is not None else None
 GRID_SIZE = 32
 STATE_CACHE_SECONDS = 2.0
+SCAN_DEBUG_OPERATIONS = frozenset({"read", "set", "reset", "cycle", "read-array", "burst-read"})
+WISHBONE_OPERATIONS = frozenset({"wb-read", "wb-write"})
+API_CAPABILITIES = {
+    "scan-debug": tuple(sorted(SCAN_DEBUG_OPERATIONS)),
+    "wishbone": ("read", "write"),
+}
 
 _manifest_cache_lock = threading.RLock()
 _manifest_cache: dict[Path, tuple[tuple[int, int], list[dict[str, Any]]]] = {}
@@ -73,6 +79,44 @@ except Exception:
 class ViewerConfig:
     runs_dir: Path
     allow_commands: bool
+
+
+def _normalize_api_operation(interface_mode: Any, operation: Any) -> tuple[str, str]:
+    """Resolve the optional namespaced API mode without breaking legacy clients."""
+
+    requested_operation = str(operation or "read").strip().lower()
+    requested_mode = str(interface_mode or "").strip().lower().replace("_", "-")
+
+    if not requested_mode:
+        if requested_operation in WISHBONE_OPERATIONS:
+            return "wishbone", requested_operation
+        if requested_operation in SCAN_DEBUG_OPERATIONS:
+            return "scan-debug", requested_operation
+        raise ValueError(f"Unsupported operation {requested_operation!r}")
+
+    if requested_mode in {"scan", "scan-debug"}:
+        if requested_operation not in SCAN_DEBUG_OPERATIONS:
+            raise ValueError(
+                f"Operation {requested_operation!r} is not available in scan-debug mode"
+            )
+        return "scan-debug", requested_operation
+
+    if requested_mode in {"wb", "wishbone"}:
+        wishbone_operation = {
+            "read": "wb-read",
+            "write": "wb-write",
+            "wb-read": "wb-read",
+            "wb-write": "wb-write",
+        }.get(requested_operation)
+        if wishbone_operation is None:
+            raise ValueError(
+                f"Operation {requested_operation!r} is not available in wishbone mode"
+            )
+        return "wishbone", wishbone_operation
+
+    raise ValueError(
+        f"Unsupported interface mode {requested_mode!r}; use 'scan-debug' or 'wishbone'"
+    )
 
 
 def _float_or_none(value: str | None) -> float | None:
@@ -748,6 +792,12 @@ class GuiHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        if parsed.path == "/api/capabilities":
+            self._send_json({
+                "interfaces": API_CAPABILITIES,
+                "legacyOperations": sorted(SCAN_DEBUG_OPERATIONS | WISHBONE_OPERATIONS),
+            })
+            return
         if parsed.path == "/api/runs":
             self._send_json({"runs": _run_choices(self.config.runs_dir)})
             return
@@ -802,7 +852,14 @@ class GuiHandler(SimpleHTTPRequestHandler):
             return
         length = int(self.headers.get("Content-Length", "0"))
         payload = json.loads(self.rfile.read(length) or b"{}")
-        operation = str(payload.get("operation", "read"))
+        try:
+            interface_mode, operation = _normalize_api_operation(
+                payload.get("interfaceMode", payload.get("mode", "")),
+                payload.get("operation", "read"),
+            )
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
         array_mode = "burst" if operation == "burst-read" else "burst-columns"
         cli_operation = "read-array" if operation == "burst-read" else operation
         row = int(payload.get("row", 0))
@@ -824,7 +881,7 @@ class GuiHandler(SimpleHTTPRequestHandler):
                 self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 return
         if (
-            operation not in {"read", "set", "reset", "cycle", "read-array", "burst-read", "wb-read", "wb-write"}
+            operation not in SCAN_DEBUG_OPERATIONS | WISHBONE_OPERATIONS
             or not (0 <= row < GRID_SIZE and 0 <= col < GRID_SIZE)
         ):
             self._send_json({"error": "Invalid operation or cell."}, HTTPStatus.BAD_REQUEST)
@@ -914,6 +971,7 @@ class GuiHandler(SimpleHTTPRequestHandler):
         key = f"{int(time.time() * 1000)}"
         self.running_commands[key] = {
             "proc": proc,
+            "interfaceMode": interface_mode,
             "operation": operation,
             "arrayMode": array_mode if operation in {"read-array", "burst-read"} else "",
             "resume": is_resume,
@@ -930,6 +988,7 @@ class GuiHandler(SimpleHTTPRequestHandler):
                 "id": key,
                 "runDir": str(run_dir.relative_to(ROOT)),
                 "command": safe_cmd,
+                "interfaceMode": interface_mode,
                 "resume": resume_info or sweep_resume_info,
             }
         )
@@ -949,6 +1008,7 @@ class GuiHandler(SimpleHTTPRequestHandler):
                     "canKill": return_code is None,
                     "external": False,
                     "returnCode": return_code,
+                    "interfaceMode": item.get("interfaceMode", "scan-debug"),
                     "operation": item.get("operation"),
                     "arrayMode": item.get("arrayMode", ""),
                     "row": item.get("row"),
@@ -989,6 +1049,9 @@ class GuiHandler(SimpleHTTPRequestHandler):
             if pid is None or pid in tracked_pids or pid == os.getpid():
                 continue
             parsed = _parse_scan_debug_process(command)
+            parsed["interfaceMode"] = (
+                "wishbone" if parsed.get("operation") in WISHBONE_OPERATIONS else "scan-debug"
+            )
             states.append(
                 {
                     "id": f"pid-{pid}",
