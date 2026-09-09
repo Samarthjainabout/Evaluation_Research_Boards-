@@ -28,7 +28,7 @@ The default path does not require Teensy firmware. The API uses
 runtime build/program TCL files to create and control one universal bitstream.
 
 WB read/write preserves the existing DAC registers, PLL configuration, and
-external 2 MHz clock. The permanent v23 FPGA image holds TM, DR, and DL
+external 2 MHz clock. The permanent v24 FPGA image holds TM, DR, and DL
 high-impedance in WB mode, applies the Caravel reset pulse, sends the runtime
 command, and captures GPIO6 UART. There is no separate WB DAC image.
 

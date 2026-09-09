@@ -93,6 +93,11 @@ module tb_dac81416_runtime_spi;
         expect_frame(12, 24'h138000);
         expect_frame(14, 24'h1575C3);
         expect_frame(15, 24'h160CCD);
+        expect_frame(17, 24'h19199A);
+        expect_frame(18, 24'h1A170A);
+        expect_frame(19, 24'h1B1EB8);
+        expect_frame(20, 24'h1C51EB);
+        expect_frame(21, 24'h1D3333);
         expect_frame(24, 24'h094110);
 
         frame_count = 0;
@@ -108,11 +113,11 @@ module tb_dac81416_runtime_spi;
         expect_frame(4, 24'h122468);
         expect_frame(5, 24'h13ABCD);
         expect_frame(6, 24'h161234);
-        expect_frame(7, 24'h190CCD);
+        expect_frame(7, 24'h19199A);
         expect_frame(8, 24'h1A170A);
-        expect_frame(9, 24'h1B0F5C);
-        expect_frame(10, 24'h1C28F6);
-        expect_frame(11, 24'h1DFFFF);
+        expect_frame(9, 24'h1B1EB8);
+        expect_frame(10, 24'h1C51EB);
+        expect_frame(11, 24'h1D3333);
         expect_frame(12, 24'h094110);
 
         frame_count = 0;

@@ -8,6 +8,7 @@ from pathlib import Path
 
 try:
     from .cell_api import (
+        DEFAULT_READ_CALIBRATION,
         RESET_PROGRAM_VCC_SET_V,
         SET_PROGRAM_VCC_SET_V,
         SET_PROGRAM_VCC_WL_V,
@@ -23,6 +24,7 @@ try:
     )
 except ImportError:
     from cell_api import (
+        DEFAULT_READ_CALIBRATION,
         RESET_PROGRAM_VCC_SET_V,
         SET_PROGRAM_VCC_SET_V,
         SET_PROGRAM_VCC_WL_V,
@@ -209,6 +211,11 @@ def main() -> int:
     parser.add_argument("--row-end", type=int, default=31)
     parser.add_argument("--threshold-uA", type=float, default=70.0)
     parser.add_argument("--threshold-uS", type=float, help="target conductance in uS at the configured read voltage")
+    parser.add_argument(
+        "--read-calibration",
+        default=str(DEFAULT_READ_CALIBRATION),
+        help="A12-A13 read-offset profile; pass an empty value only for raw diagnostics",
+    )
     parser.add_argument("--correction-tolerance-uA", type=float, default=5.0)
     parser.add_argument("--correction-tolerance-uS", type=float, help="conductance tolerance on each side of the target")
     parser.add_argument("--set-vcc-set", type=float, default=SET_PROGRAM_VCC_SET_V)
@@ -266,7 +273,12 @@ def main() -> int:
         direction="above",
         confirm_reads=args.confirm_reads,
     )
-    config = ScanDebugConfig(run_dir=Path(args.run_dir), set_sweep=set_sweep)
+    config = ScanDebugConfig(
+        run_dir=Path(args.run_dir),
+        set_sweep=set_sweep,
+        read_calibration_path=Path(args.read_calibration) if args.read_calibration else None,
+        read_feedback_attempts=3,
+    )
     reset_vcc_set_values = (
         tuple(args.reset_vcc_set_values)
         if args.reset_vcc_set_values is not None

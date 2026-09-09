@@ -45,13 +45,13 @@ module dac81416_runtime_spi #(
     // DAC7 uses the 0..5 V range: 0xCCCC = 4.0 V VDDIO.
     localparam [15:0] DEFAULT_VDDIO_CODE   = 16'hCCCC;
 
-    // Existing scan-debug values for DAC9..DAC13.  Reapply these after a WB
-    // operation so selecting scan mode restores the previous configuration.
-    localparam [15:0] SCAN_DAC9_CODE  = 16'h0CCD;
+    // Shared scan/WB bias profile requested for the active chip.  WB commands
+    // preserve these live registers; scan updates reapply the same values.
+    localparam [15:0] SCAN_DAC9_CODE  = 16'h199A;
     localparam [15:0] SCAN_DAC10_CODE = 16'h170A;
-    localparam [15:0] SCAN_DAC11_CODE = 16'h0F5C;
-    localparam [15:0] SCAN_DAC12_CODE = 16'h28F6;
-    localparam [15:0] SCAN_DAC13_CODE = 16'hFFFF;
+    localparam [15:0] SCAN_DAC11_CODE = 16'h1EB8;
+    localparam [15:0] SCAN_DAC12_CODE = 16'h51EB;
+    localparam [15:0] SCAN_DAC13_CODE = 16'h3333;
 
     // WB-only voltages.  DAC9/11/12/13 use the configured 0..5 V span;
     // DAC10 uses its configured 0..10 V span.

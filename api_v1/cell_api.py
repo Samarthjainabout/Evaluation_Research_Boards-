@@ -28,8 +28,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SUMMARIZER = ROOT / "api_v1/tools/summarize_capture.py"
 DEFAULT_READ_CALIBRATION = ROOT / "api_v1/calibration/read_offset_A25E1BAA6577FA4D_0p5V.json"
 FPGA_BITSTREAM_DIR = ROOT / "api_v1/prerequisites/fpga_zynq7020/bitstreams"
-FPGA_RUNTIME_BITSTREAM = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit"
-FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.ltx"
+FPGA_RUNTIME_BITSTREAM = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.bit"
+FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.ltx"
 DEFAULT_WB_ADDRESS = 0x30000004
 DEFAULT_WB_READ_VALUE = 0x4002AA82
 DEFAULT_WB_WRITE_VALUE = 0x500888FF
@@ -92,6 +92,17 @@ def parse_u32(value: int | str, *, label: str = "32-bit value") -> int:
     if not 0 <= parsed <= 0xFFFFFFFF:
         raise ValueError(f"{label} must be between 0x00000000 and 0xFFFFFFFF")
     return parsed
+
+
+def decode_wb_return(value: int) -> dict[str, int]:
+    """Decode the documented 32-bit Wishbone readback fields."""
+
+    return {
+        "extra": (value >> 19) & 0x1FFF,
+        "col_addr": (value >> 14) & 0x1F,
+        "coarse_cnt": (value >> 8) & 0x3F,
+        "fine_cnt": value & 0xFF,
+    }
 
 
 class InvalidReadFeedbackError(RuntimeError):
@@ -1138,6 +1149,8 @@ class ScanDebugCellAPI:
             "nonzero_wait_timed_out": bool(uart.get("nonzero_wait_timed_out", False)),
             "uart": f"FPGA/VIO tag=0x{uart['tag']:02X} value=0x{uart['value']:08X}",
         })
+        if operation == "read":
+            result["decoded_return"] = decode_wb_return(int(uart["value"]))
         self._append_jsonl("wishbone_access.jsonl", result)
         self._append_progress(operation_name, "Wishbone access complete", value=result["return_value"])
         return result

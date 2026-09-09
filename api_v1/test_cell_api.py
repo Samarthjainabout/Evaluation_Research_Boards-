@@ -808,7 +808,7 @@ class FpgaDacBitstreamTests(unittest.TestCase):
 
         name = api._ensure_bitstream(cell, 0, RailVoltages(0.5, 2.5))
 
-        self.assertEqual(name, "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit")
+        self.assertEqual(name, "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.bit")
         self.assertEqual(api._ensure_bitstream(cell, 1, RailVoltages(3.0, 2.0)), name)
         self.assertEqual(api._ensure_array_bitstream(0, 31), name)
 
@@ -838,7 +838,7 @@ class FpgaDacBitstreamTests(unittest.TestCase):
         packet = 0x8000 | (18 << 10) | 18
 
         rc = api._program_fpga(
-            "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit",
+            "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.bit",
             packet=packet,
             rails=RailVoltages(2.5, 1.2),
             packet_count=1,
@@ -847,8 +847,8 @@ class FpgaDacBitstreamTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         command = api._run_zynq_powershell.call_args.args[0]
         self.assertIn("program_and_run_runtime.tcl", command)
-        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit", command)
-        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.ltx", command)
+        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.bit", command)
+        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.ltx", command)
         self.assertIn(api._runtime_command_payload(packet, RailVoltages(2.5, 1.2), 1), command)
 
     def test_fast_program_pulse_uses_runtime_ack_without_saleae_capture(self) -> None:
@@ -986,6 +986,14 @@ class WishboneModeTests(unittest.TestCase):
 
         for code in ("16'h199A", "16'h170A", "16'h1EB8", "16'h51EB", "16'h3333"):
             self.assertIn(code, source)
+        for assignment in (
+            "SCAN_DAC9_CODE  = 16'h199A",
+            "SCAN_DAC10_CODE = 16'h170A",
+            "SCAN_DAC11_CODE = 16'h1EB8",
+            "SCAN_DAC12_CODE = 16'h51EB",
+            "SCAN_DAC13_CODE = 16'h3333",
+        ):
+            self.assertIn(assignment, source)
         self.assertIn("last_frame_index <= wb_profile_i ? 5'd5 : 5'd12", source)
         self.assertIn("5'd1: update_frame = 24'h0B0101", source)
         self.assertIn("5'd4: update_frame = {8'h12, vcc_set_code[15]", source)
@@ -1014,7 +1022,7 @@ class WishboneModeTests(unittest.TestCase):
         self.assertEqual(result["value"], 0x89ABCDEF)
         command = api._run_zynq_powershell.call_args.args[0]
         self.assertIn("wait_uart", command)
-        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit", command)
+        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.bit", command)
 
     def test_passive_fpga_uart_result_does_not_issue_runtime_command(self) -> None:
         api = ScanDebugCellAPI(ScanDebugConfig(zynq_os="windows"))
@@ -1070,6 +1078,12 @@ class WishboneModeTests(unittest.TestCase):
             result = api.wishbone_access("read", "0x4002AA82")
 
         self.assertEqual(result["return_value"], "0x0007F363")
+        self.assertEqual(result["decoded_return"], {
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 51,
+            "fine_cnt": 99,
+        })
         self.assertEqual(result["readbacks_collected"], 15)
         self.assertEqual(result["readbacks"][:11], ["0x00000000"] * 11)
         self.assertFalse(result["dac_profile_applied"])

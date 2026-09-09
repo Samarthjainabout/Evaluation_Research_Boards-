@@ -7,10 +7,10 @@ column-specific bitstreams.
 
 | File | Purpose | SHA-256 |
 |---|---|---|
-| `caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit` | Validated shared scan-debug and WB runtime | `f6e476e08a7c01dcf5d8df3663cce745dd1ec59daa9a0de0428eedda08a821da` |
-| `caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.ltx` | Matching VIO probes required by the API | `88c661873bdb70fa0b4d876c000e20e3ac79d7bbef4efda72ba3ebf0a70e325e` |
+| `caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.bit` | Validated shared scan-debug and WB runtime with the updated bias profile | `7698305b963262bb302904c0b78580eefc80b8ce5cd544c0da5223f092b58160` |
+| `caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.ltx` | Matching VIO probes required by the API | `88c661873bdb70fa0b4d876c000e20e3ac79d7bbef4efda72ba3ebf0a70e325e` |
 
-The v23 image uses the externally supplied 2 MHz clock. Scan reads hold the
+The v24 image uses the externally supplied 2 MHz clock. Scan reads hold the
 selected cell for 2400 clocks (1.2 ms). In WB mode, TM and ScanInDR are
 high-impedance; ScanInDL carries the checked startup command and then becomes
 high-impedance before Wishbone access. Runtime WB commands preserve every DAC

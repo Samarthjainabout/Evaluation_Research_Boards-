@@ -445,9 +445,11 @@ packet `0x7FF2AA82`; the returned value therefore follows the final r31c31
 command. Other entered values are sent once after the three setup writes.
 Firmware performs 15 register reads and emits one uniquely tagged UART frame
 for each value. The API reports all 15 values and selects the first nonzero
-value as `return_value`.
+value as `return_value`. For reads, `decoded_return` and the GUI display split
+that word into `extra[31:19]`, `col_addr[18:14]`, `coarse_cnt[13:8]`, and
+`fine_cnt[7:0]`.
 
-There is no separate WB DAC image. WB operations use the permanent v23 FPGA
+There is no separate WB DAC image. WB operations use the permanent v24 FPGA
 runtime and preserve every live DAC register. The scan-debug API owns runtime
 updates to `Vcc_set` and `Vcc_wl_set`; selecting WB mode does not rewrite a DAC
 range, channel value, power state, PLL register, or the external 2 MHz clock.
@@ -541,8 +543,8 @@ Local summarizer used by the API:
    caravel_scan_debug_fpga.xdc
    build_runtime_bitstream.tcl
    program_and_run_runtime.tcl
-   caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit
-   caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.ltx
+   caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.bit
+   caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.ltx
    ```
 
    The API automatically uploads these files. Read, set, reset, cycle, serial
@@ -600,18 +602,18 @@ path and keeps the pad connected to the user-project analog node. WB commands
 do not rewrite the DAC, so the WB voltage is the value already established by
 FPGA startup or the last scan command.
 
-| Analog signal | Caravel GPIO | DAC route | v23 startup / scan state | WB state | Caravel configuration |
+| Analog signal | Caravel GPIO | DAC route | v24 startup / scan state | WB state | Caravel configuration |
 |---|---:|---:|---|---|---|
-| `dc_bias` | 25 | DAC13 | 5.0 V | preserved | `GPIO_MODE_USER_STD_ANALOG` |
+| `dc_bias` | 25 | DAC13 | 1.0 V | preserved | `GPIO_MODE_USER_STD_ANALOG` |
 | `Vcc_wl_read` | 26 | DAC1 | 2.5 V | preserved | `GPIO_MODE_USER_STD_ANALOG` |
 | `Vcc_set` | 27 | DAC6; mirrored on DAC2 | 0.5 V default; API-adjustable in scan mode | preserved | `GPIO_MODE_USER_STD_ANALOG` |
 | `Vcc_wl_reset` | 28 | DAC4 | powered down / 0 V code | preserved | `GPIO_MODE_USER_STD_ANALOG` |
-| `Vbias` | 29 | DAC12 | 0.8 V | preserved | `GPIO_MODE_USER_STD_ANALOG` |
+| `Vbias` | 29 | DAC12 | 1.6 V | preserved | `GPIO_MODE_USER_STD_ANALOG` |
 | `Vcc_wl_set` | 30 | DAC3 | 2.5 V default; API-adjustable in scan mode | preserved | `GPIO_MODE_USER_STD_ANALOG` |
-| `Bias_comp2` | 31 | DAC11 | 0.3 V | preserved | `GPIO_MODE_USER_STD_ANALOG` |
+| `Bias_comp2` | 31 | DAC11 | 0.6 V | preserved | `GPIO_MODE_USER_STD_ANALOG` |
 | `Vcomp` | 32 | DAC10 | 0.9 V | preserved | `GPIO_MODE_USER_STD_ANALOG` |
 | `Vcc_read` | 33 | DAC0 | 0.5 V | preserved | `GPIO_MODE_USER_STD_ANALOG` |
-| `Iref` | 34 | DAC9 | 0.25 V | preserved | `GPIO_MODE_USER_STD_ANALOG` |
+| `Iref` | 34 | DAC9 | 0.5 V | preserved | `GPIO_MODE_USER_STD_ANALOG` |
 
 Additional DAC support rails are DAC5 = 2.3 V, DAC7/VDDIO = 4.0 V, and
 DAC15/VCCD2 = 2.1 V. DAC8 and DAC14 are powered down. The board J5 3.3 V link
@@ -676,7 +678,7 @@ FPGA to Caravel and Saleae digital probes:
 | `ScanInCC` | scan clock/control | J10-8 / Y16 | optional |
 
 The FPGA RTL changes scan data/control on the falling edge of `wb_clk_i`. Caravel samples on the rising edge.
-The shared v23 runtime holds each selected scan cell for 2400 clocks, or
+The shared v24 runtime holds each selected scan cell for 2400 clocks, or
 1.2 ms at the externally supplied 2 MHz clock. Single-cell and burst captures
 use the same hold interval and measure from ScanInDR rise through TM fall.
 

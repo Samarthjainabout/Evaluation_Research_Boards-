@@ -250,7 +250,11 @@ function formatApiEvent(row) {
     const readbacks = Array.isArray(row.readbacks) && row.readbacks.length
       ? ` — ${row.readbacks.length} reads: ${row.readbacks.join(", ")}`
       : "";
-    return `${String(row.operation || "WB").toUpperCase()} RETURN: ${row.return_value || "no value"} via FPGA UART${readbacks}`;
+    const decoded = row.decoded_return;
+    const fields = decoded
+      ? ` — col=${decoded.col_addr}, coarse=${decoded.coarse_cnt}, fine=${decoded.fine_cnt}, extra=${decoded.extra}`
+      : "";
+    return `${String(row.operation || "WB").toUpperCase()} RETURN: ${row.return_value || "no value"} via FPGA UART${fields}${readbacks}`;
   }
   if (row.source === "log") {
     return `ERROR: ${formatApiMessage(row.message)}`;

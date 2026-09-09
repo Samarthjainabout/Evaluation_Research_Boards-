@@ -130,6 +130,7 @@ class HeatmapScaleTests(unittest.TestCase):
         self.assertEqual(result["return_value"], "0x89ABCDEF")
         app_js = (STATIC_DIR / "app.js").read_text()
         self.assertIn('RETURN: ${row.return_value || "no value"} via FPGA UART', app_js)
+        self.assertIn("coarse=${decoded.coarse_cnt}", app_js)
 
     def test_gui_burst_keeps_full_array_capture_and_single_read_timing(self) -> None:
         server_py = (STATIC_DIR.parent / "server.py").read_text()
