@@ -1,78 +1,25 @@
-# FPGA Bitstream Recovery Backup
+# Current FPGA Runtime Image
 
-These bitstreams are checked in so the AX7020/Zynq FPGA can be reprogrammed after a board power cycle or host reboot without rebuilding in Vivado.
+This directory intentionally contains one deployable FPGA image and its
+matching Vivado debug-probes file. Cell addresses, scan/WB mode, packet count,
+and scan voltages are runtime VIO inputs; they do not require separate
+column-specific bitstreams.
 
-## Backed-Up Files
+| File | Purpose | SHA-256 |
+|---|---|---|
+| `caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit` | Validated shared scan-debug and WB runtime | `f6e476e08a7c01dcf5d8df3663cce745dd1ec59daa9a0de0428eedda08a821da` |
+| `caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.ltx` | Matching VIO probes required by the API | `88c661873bdb70fa0b4d876c000e20e3ac79d7bbef4efda72ba3ebf0a70e325e` |
 
-| File | Use |
-|---|---|
-| `caravel_scan_debug_fpga_array_read_r00cXX_burst.bit` | Older column-burst array read backup using the original API burst timing. |
-| `caravel_scan_debug_fpga_array_read_r00cXX_init*_tm*_rst*_gap*_burst.bit` | Current column-burst array read naming. The filename records startup delay cycles, TM hold cycles, FPGA reset assert cycles, and repeat gap cycles so stale bitstreams are not reused by accident. |
-| `caravel_scan_debug_fpga_active_20260822_050304.bit` | Active remote Zynq bitstream copied from `C:/Users/geethika/zynq_scan_debug/caravel_scan_debug_fpga.bit` on 2026-08-22. |
-| `caravel_scan_debug_fpga_read1405_repeat.bit` | Known-good read packet `0x1405`, cell `(5,0)`, copied from the chip1 cell (5,0) forming package. |
-| `caravel_scan_debug_fpga_set9405_repeat.bit` | Known-good set packet `0x9405`, cell `(5,0)`, copied from the chip1 cell (5,0) forming package. |
-| `caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.bit` + `.ltx` | Current universal runtime: passive Caravel UART on J10-10, FPGA reset support, and TM/DR/DL high-impedance in WB mode. |
+The v23 image uses the externally supplied 2 MHz clock. Scan reads hold the
+selected cell for 2400 clocks (1.2 ms). In WB mode, TM and ScanInDR are
+high-impedance; ScanInDL carries the checked startup command and then becomes
+high-impedance before Wishbone access. Runtime WB commands preserve every DAC
+register and do not change the PLL.
 
-## Reprogram After Reboot
+To rebuild:
 
-From this directory on a machine with Vivado and JTAG access:
-
-```bash
-vivado -mode batch -source ../program_prebuilt_bitstream.tcl -tclargs caravel_scan_debug_fpga_active_20260822_050304.bit
+```powershell
+vivado -mode batch -source ..\build_runtime_bitstream.tcl
 ```
 
-For the original API programming TCL, copy the wanted backup to `caravel_scan_debug_fpga.bit` in the FPGA working directory and run:
-
-```bash
-vivado -mode batch -source program_scan_debug_zynq7020.tcl
-```
-
-The API can still generate new per-cell bitstreams dynamically during normal `read`, `set`, and `reset` commands. These backups are only for fast manual recovery.
-
-To build/cache all 32 column-burst read bitstreams:
-
-```bash
-python api_v1/scan_debug_cli.py build-array-bitstreams
-```
-
-## Checksums
-
-```text
-7aafeee4f73fdf8c0c8cd1e2a5b7129b8d0f3a097cf7351dc66e78e879460f26  caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.bit
-88c661873bdb70fa0b4d876c000e20e3ac79d7bbef4efda72ba3ebf0a70e325e  caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.ltx
-0fac3db89f481c7160c806c34c4b2ed840af1ed3d54ffcc1cbf93531acfcd604  caravel_scan_debug_fpga_active_20260822_050304.bit
-6e231460d5ac1bc2a0cf584965fb5d6cb1a7ebcd4a20f2117c8a9a74ed05ca86  caravel_scan_debug_fpga_array_read_r00c00_burst.bit
-7b8d2fd804abb54855710cf3f4888946ad351fc361b860f330c0682b0b38cf99  caravel_scan_debug_fpga_array_read_r00c01_burst.bit
-9cf154ff9e980e7a2ff02ab702610a903478eb9a556dc08f6e56a75f53ccd628  caravel_scan_debug_fpga_array_read_r00c02_burst.bit
-8802ad41d145f4f548110940dc126106c368397f29a3a95479b538d9a73d0ead  caravel_scan_debug_fpga_array_read_r00c03_burst.bit
-2e250cc52e33ee7ea98f7e350bb6a8f43180fce2f3c71d8cf818fecb4f7600fa  caravel_scan_debug_fpga_array_read_r00c04_burst.bit
-1b12a7fd96acc4d2f0131b2748ac671111c05cd3b18d6a662507115784b15ada  caravel_scan_debug_fpga_array_read_r00c05_burst.bit
-a5b2634b33c5d39dd1c4654db39f25d54e7b83d2fb2d0b5e17c42555c05da020  caravel_scan_debug_fpga_array_read_r00c06_burst.bit
-2986e2309760348bab7553d03e6ff3fa643fda275d5a890db08d26943c9dc2c1  caravel_scan_debug_fpga_array_read_r00c07_burst.bit
-a1b6027c9ca6d3f789c11a1782629eac635a8825b9c6f994d47f76a8c6a4c40c  caravel_scan_debug_fpga_array_read_r00c08_burst.bit
-4f1ead632c4e7308d0c261bc5b4ef6d0f6e90c8cb4397f8c04ae07cfb86f6646  caravel_scan_debug_fpga_array_read_r00c09_burst.bit
-bdf0a5d8b5e6e72b7a4206426c4e8061f8816d2eca591e3720c06a42abb938f1  caravel_scan_debug_fpga_array_read_r00c10_burst.bit
-7a852c957731a8e8779e8cda746501ce1c3a70709246a4e83b73107426e5f377  caravel_scan_debug_fpga_array_read_r00c11_burst.bit
-853f86f975fd07fce582c9af3e116d5c5e405ed4c2b9eae3950c0719372e04f2  caravel_scan_debug_fpga_array_read_r00c12_burst.bit
-66b2ed74a3be3c747d8157ca3fee4839b74a8cfe06778be0c1c92558c6c3f004  caravel_scan_debug_fpga_array_read_r00c13_burst.bit
-4ca56538e6bd74f83fc11ef4f8afebe10420db7b9de9b7d74752a9f8972a6f7d  caravel_scan_debug_fpga_array_read_r00c14_burst.bit
-88a156f1911b5fda845b880b4080f79ccd8ada13640a1784de5381625b41d0d5  caravel_scan_debug_fpga_array_read_r00c15_burst.bit
-c12323e337f65f4ee9393c2c3916d46ece95c3fd9d7918dfb3ce07fffd337774  caravel_scan_debug_fpga_array_read_r00c16_burst.bit
-cc9208ac26153af0067f3891532600b15f8ffbf64db1667fb7a819b4d43df27f  caravel_scan_debug_fpga_array_read_r00c17_burst.bit
-ff1a53ed9dde35487afc122fac4e35158f4118adfa9d5287bf71a4f5fd2c8f97  caravel_scan_debug_fpga_array_read_r00c18_burst.bit
-6eaf44b335fe3699eb639d3a58435e97c981c43ac196f2fb3a75f061e2c0559b  caravel_scan_debug_fpga_array_read_r00c19_burst.bit
-d71289cd12988f71a7fafb48e159bbe8d288c58acdea9234306c95f0512856de  caravel_scan_debug_fpga_array_read_r00c20_burst.bit
-3efa99e0765294b55e299148abda6b6fe5e1fdbaa1b320b2d6ddc33ffe8439b3  caravel_scan_debug_fpga_array_read_r00c21_burst.bit
-a439a1dcef340020d496bc7958ecefca4e4e719a93857e8cb6fe6382ef640afe  caravel_scan_debug_fpga_array_read_r00c22_burst.bit
-7224d057854fbb36fcb7cfd8787f4839bab276a64ec7d6df8abe17e1b10c1fb2  caravel_scan_debug_fpga_array_read_r00c23_burst.bit
-1a776314d9e81f123fe9469c6488f7031976da5026e841110ee54f466923f3c9  caravel_scan_debug_fpga_array_read_r00c24_burst.bit
-09103a236b119ecf6734b2c421a02e67f40dd0692cebd89c21e3c1fdf3c7cc51  caravel_scan_debug_fpga_array_read_r00c25_burst.bit
-c048785a124d94661c394242f1b5fc02e66df2c277b55d30ccfb9a5d86021544  caravel_scan_debug_fpga_array_read_r00c26_burst.bit
-dddfc130897341ba68a26a4b5c9304570706370287e4359ab7c8b90720f98871  caravel_scan_debug_fpga_array_read_r00c27_burst.bit
-b587d4035d8b9cb5bc5815c189119289b64bbff762c58109bbd31a48105f7d20  caravel_scan_debug_fpga_array_read_r00c28_burst.bit
-731c401cf2de9453ffe463fb0a3e745dbd5b569d406ef59ffe8af6af6d9e728a  caravel_scan_debug_fpga_array_read_r00c29_burst.bit
-ae0cf011669abfd55ddfc09916618fd18351e7664ae6ff42c574a2a0d4f42c0d  caravel_scan_debug_fpga_array_read_r00c30_burst.bit
-7aec061483c0927bb411e862e696743d018f3bb7def3aadbf211df3791cb923e  caravel_scan_debug_fpga_array_read_r00c31_burst.bit
-298da5bd4849d9789028ef82339e200e31ca3d65778799bbc689b53ffcdac9b8  caravel_scan_debug_fpga_read1405_repeat.bit
-188712a639d83a3f6f32f9e24e15753be0e4d2ec9f93a147c0827fcce8e74edc  caravel_scan_debug_fpga_set9405_repeat.bit
-```
+Normal API/GUI operations automatically upload and reuse this image.

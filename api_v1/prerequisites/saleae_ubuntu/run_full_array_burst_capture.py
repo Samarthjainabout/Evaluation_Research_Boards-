@@ -18,11 +18,13 @@ import run_fpga_scan0000_la12_15_capture as base
 
 
 DIGITAL_CHANNELS = [6, 7, 8, 9, 10, 11]
-ANALOG_CHANNELS = [12, 13, 14, 15]
+# Record commanded rails with the current shunts.  The host rejects the run
+# if A0/A1 do not match the requested read profile.
+ANALOG_CHANNELS = [0, 1, 12, 13, 14, 15]
 DIGITAL_SAMPLE_RATE = int(os.environ.get("DIGITAL_SAMPLE_RATE", "50000000"))
 ANALOG_SAMPLE_RATE = int(os.environ.get("ANALOG_SAMPLE_RATE", "3125000"))
 DIGITAL_THRESHOLD_VOLTS = float(os.environ.get("DIGITAL_THRESHOLD_VOLTS", "1.2"))
-AFTER_TRIGGER_SECONDS = float(os.environ.get("AFTER_TRIGGER_SECONDS", "0.000028"))
+AFTER_TRIGGER_SECONDS = float(os.environ.get("AFTER_TRIGGER_SECONDS", "0.001300"))
 TRIM_DATA_SECONDS = float(os.environ.get("TRIM_DATA_SECONDS", "0.000003"))
 MAX_CELLS = int(os.environ.get("MAX_CELLS", "1024"))
 SHUNT_OHMS = float(os.environ.get("SHUNT_OHMS", "470.0"))
@@ -36,15 +38,17 @@ START_COL = int(os.environ.get("START_COL", "0"))
 TRIGGER_CHANNEL_INDEX = int(os.environ.get("TRIGGER_CHANNEL_INDEX", "9"))
 TRIGGER_TYPE = os.environ.get("TRIGGER_TYPE", "RISING").strip().upper()
 CAPTURE_STRATEGY = os.environ.get("CAPTURE_STRATEGY", "single").strip().lower()
-MEASURE_SKIP_END_CYCLES = float(os.environ.get("MEASURE_SKIP_END_CYCLES", "3"))
+# A single-cell read averages through TM fall.  Keep burst reads on that exact
+# window unless an explicit diagnostic override requests end trimming.
+MEASURE_SKIP_END_CYCLES = float(os.environ.get("MEASURE_SKIP_END_CYCLES", "0"))
 FULL_ARRAY_DETERMINISTIC_TIMING = os.environ.get("FULL_ARRAY_DETERMINISTIC_TIMING", "0") == "1"
 FPGA_RESET_ASSERT_CYCLES = int(os.environ.get("FPGA_RESET_ASSERT_CYCLES", "24000"))
 RESET_RELEASE_FALLBACK_CYCLES = int(os.environ.get("RESET_RELEASE_FALLBACK_CYCLES", "2000"))
 POST_RESET_WAIT_CYCLES = int(os.environ.get("POST_RESET_WAIT_CYCLES", "128"))
-POST_DR_TM_HOLD_CYCLES = int(os.environ.get("POST_DR_TM_HOLD_CYCLES", "100"))
+POST_DR_TM_HOLD_CYCLES = int(os.environ.get("POST_DR_TM_HOLD_CYCLES", "2400"))
 REPEAT_AFTER_DONE_CYCLES = int(os.environ.get("REPEAT_AFTER_DONE_CYCLES", "1"))
 WB_CLK_PERIOD_SECONDS = float(os.environ.get("WB_CLK_PERIOD_SECONDS", "0.0000005"))
-FULL_ARRAY_PACKET_PERIOD_SECONDS = float(os.environ.get("FULL_ARRAY_PACKET_PERIOD_SECONDS", "0.01312428"))
+FULL_ARRAY_PACKET_PERIOD_SECONDS = float(os.environ.get("FULL_ARRAY_PACKET_PERIOD_SECONDS", "0.01427428"))
 
 
 def sweep_cells():
@@ -528,6 +532,24 @@ def run_single_capture(root: Path, cells, rails, adc_csv: Path, manifest_csv: Pa
             capture_done = time.monotonic()
             print("BURST_STAGE Waveform export complete; calculating cell readings", flush=True)
 
+        rail_summary = base.analog_summary(trace_dir / "analog.csv")
+        rail_channels = rail_summary.get("analog_channels", {})
+        requested_set = float(os.environ.get("VCC_SET_V", "0.5"))
+        requested_wl = float(os.environ.get("VCC_WL_SET_V", "2.5"))
+        measured_set = rail_channels.get("A0", {}).get("mean")
+        measured_wl = rail_channels.get("A1", {}).get("mean")
+        tolerance_v = float(os.environ.get("RAIL_VERIFY_TOLERANCE_V", "0.10"))
+        if measured_set is None or abs(float(measured_set) - requested_set) > tolerance_v:
+            raise RuntimeError(
+                f"Vcc_set rail mismatch: requested {requested_set:.3f} V, "
+                f"Saleae A0 measured {measured_set if measured_set is not None else 'missing'} V"
+            )
+        if measured_wl is None or abs(float(measured_wl) - requested_wl) > tolerance_v:
+            raise RuntimeError(
+                f"Vcc_wl_set rail mismatch: requested {requested_wl:.3f} V, "
+                f"Saleae A1 measured {measured_wl if measured_wl is not None else 'missing'} V"
+            )
+
         if FULL_ARRAY_DETERMINISTIC_TIMING:
             decoded_windows = deterministic_packet_windows(cells)
         else:
@@ -615,6 +637,7 @@ def run_single_capture(root: Path, cells, rails, adc_csv: Path, manifest_csv: Pa
             },
             "capture_started_monotonic": capture_started,
             "capture_done_monotonic": capture_done,
+            "rail_measurements": rail_summary,
             "adc_state": adc_state,
             "saleae": {
                 "device_id": device.device_id,

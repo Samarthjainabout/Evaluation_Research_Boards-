@@ -40,9 +40,12 @@ def dashed_vline(draw: ImageDraw.ImageDraw, x: int, y0: int, y1: int, color: str
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Plot an archived RESET Saleae packet capture")
+    parser = argparse.ArgumentParser(description="Plot an archived Saleae packet capture")
     parser.add_argument("capture_dir", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--operation", default="RESET", help="operation label shown in the title and timing panel")
+    parser.add_argument("--cell", help="cell label such as 0,0; inferred from capture directory when omitted")
+    parser.add_argument("--corrected-current-ua", type=float, help="offset-corrected READ current for the footer")
     parser.add_argument("--vdda1", type=float, help="externally supplied VDDA1 voltage, for plot annotation")
     parser.add_argument("--note", default="measured Saleae capture")
     args = parser.parse_args()
@@ -72,17 +75,21 @@ def main() -> int:
     set_mean = float(np.mean(set_current[mean_mask]))
     reset_mean = float(np.mean(reset_current[mean_mask]))
 
-    width, height = 1600, 1000
+    width, height = 1600, 1350
     image = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(image)
     left, right = 155, 1540
     plot_w = right - left
-    panels = [(95, 260), (390, 230), (665, 230)]
+    panels = [(95, 260), (390, 150), (570, 150), (750, 230), (1010, 230)]
 
     cell_match = re.search(r"r(\d{2})c(\d{2})", capture.name)
-    cell_label = f"({int(cell_match.group(1))},{int(cell_match.group(2))})" if cell_match else "(unknown)"
+    if args.cell:
+        cell_label = f"({args.cell.strip().strip('()')})"
+    else:
+        cell_label = f"({int(cell_match.group(1))},{int(cell_match.group(2))})" if cell_match else "(unknown)"
+    operation = args.operation.strip().upper()
     vdda1_label = f", VDDA1={args.vdda1:.2f} V" if args.vdda1 is not None else ""
-    title = f"RESET Packet Cell {cell_label}, packet {summary['packet']}: {args.note}{vdda1_label}"
+    title = f"{operation} Packet Cell {cell_label}, packet {summary['packet']}: {args.note}{vdda1_label}"
     draw.text((width // 2, 25), title, fill="#111111", font=font(26, bold=True), anchor="ma")
 
     def x_px(value: float) -> int:
@@ -93,7 +100,7 @@ def main() -> int:
 
     # Digital timing panel.
     top, panel_h = panels[0]
-    draw.text((left, top - 27), "RESET packet timing from Saleae capture", fill="#111111", font=font(20, bold=True))
+    draw.text((left, top - 27), f"{operation} packet timing from Saleae capture", fill="#111111", font=font(20, bold=True))
     draw.rectangle((left, top, right, top + panel_h), outline="#333333", width=2)
     row_h = panel_h / len(SIGNALS)
     for tick in ticks:
@@ -158,14 +165,78 @@ def main() -> int:
             for time_us, value in zip(t_a[in_view], visible)
         ]
         draw.line(points, fill=color, width=2)
-        draw.text((27, y_top + h / 2), "current (µA)", fill="#30343b", font=font(13), anchor="mm")
-        legend = f"mean window = {mean:.2f} µA"
+        draw.text((55, y_top + h / 2), "current (µA)", fill="#30343b", font=font(13), anchor="mm")
+        legend = f"raw mean window = {mean:.2f} µA"
         draw.rounded_rectangle((630, y_top + 88, 925, y_top + 128), radius=5, fill="#ffffff", outline="#d0d4da")
         draw.line((650, y_top + 108, 690, y_top + 108), fill=color, width=3)
         draw.text((705, y_top + 108), legend, fill="#30343b", font=font(13), anchor="lm")
 
-    analog_panel(panels[1], set_current, "Set shunt current, LA A12-A13 / 470 ohm", "#2878d0", set_mean)
-    analog_panel(panels[2], reset_current, "Reset shunt current, LA A14-A15 / 470 ohm", "#df3f3f", reset_mean)
+    def rail_panel(
+        panel: tuple[int, int],
+        values: np.ndarray,
+        heading: str,
+        channel: str,
+        color: str,
+        requested: float,
+        stats: dict[str, float],
+    ) -> None:
+        y_top, h = panel
+        draw.text((left, y_top - 25), heading, fill="#111111", font=font(19, bold=True))
+        draw.rectangle((left, y_top, right, y_top + h), outline="#333333", width=2)
+        in_view = (t_a >= x_min) & (t_a <= x_max)
+        visible = values[in_view]
+        data_low = min(float(np.min(visible)), requested)
+        data_high = max(float(np.max(visible)), requested)
+        pad = max((data_high - data_low) * 0.35, 0.01)
+        low, high = data_low - pad, data_high + pad
+
+        def y_px(value: float) -> int:
+            return round(y_top + h - (value - low) / (high - low) * h)
+
+        for tick in ticks:
+            x = x_px(float(tick))
+            draw.line((x, y_top, x, y_top + h), fill="#e5e7eb", width=1)
+        for value in np.linspace(low, high, 4):
+            y = y_px(float(value))
+            draw.line((left, y, right, y), fill="#e5e7eb", width=1)
+            draw.text((left - 12, y), f"{value:.3f}", fill="#30343b", font=font(12), anchor="rm")
+        requested_y = y_px(requested)
+        draw.line((left, requested_y, right, requested_y), fill="#6b7280", width=1)
+        points = [
+            (x_px(float(time_us)), y_px(float(value)))
+            for time_us, value in zip(t_a[in_view], visible)
+        ]
+        draw.line(points, fill=color, width=2)
+        draw.text((55, y_top + h / 2), "voltage (V)", fill="#30343b", font=font(13), anchor="mm")
+        legend = (
+            f"LA {channel}: mean={stats['mean']:.4f} V, "
+            f"min={stats['min']:.3f}, max={stats['max']:.3f}; requested={requested:.3f} V"
+        )
+        draw.rounded_rectangle((545, y_top + 53, 1115, y_top + 93), radius=5, fill="#ffffff", outline="#d0d4da")
+        draw.line((565, y_top + 73, 605, y_top + 73), fill=color, width=3)
+        draw.text((620, y_top + 73), legend, fill="#30343b", font=font(13), anchor="lm")
+
+    rail_stats = analysis["analog"]["rail_measured"]
+    rail_panel(
+        panels[1],
+        analog["Channel 0"],
+        "Vcc_set measured by Saleae LA A0",
+        "A0",
+        "#0f9d8a",
+        float(summary["vcc_set_V"]),
+        rail_stats["Vcc_set_V"],
+    )
+    rail_panel(
+        panels[2],
+        analog["Channel 1"],
+        "Vcc_wl_set measured by Saleae LA A1",
+        "A1",
+        "#8e5ac7",
+        float(summary["vcc_wl_set_V"]),
+        rail_stats["Vcc_wl_set_V"],
+    )
+    analog_panel(panels[3], set_current, "Set shunt current, LA A12-A13 / 470 ohm", "#2878d0", set_mean)
+    analog_panel(panels[4], reset_current, "Reset shunt current, LA A14-A15 / 470 ohm", "#df3f3f", reset_mean)
 
     axis_y = panels[-1][0] + panels[-1][1]
     for tick in ticks:
@@ -173,14 +244,21 @@ def main() -> int:
         draw.text((x, axis_y + 11), f"{tick:.0f}", fill="#30343b", font=font(12), anchor="ma")
     draw.text((width // 2, axis_y + 38), "time from TM rise (µs)", fill="#30343b", font=font(14), anchor="ma")
 
+    corrected_label = (
+        f"corrected READ={args.corrected_current_ua:.2f} µA "
+        f"({args.corrected_current_ua / summary['vcc_set_V']:.2f} µS); "
+        if args.corrected_current_ua is not None and summary["vcc_set_V"]
+        else ""
+    )
     footer = (
         f"Decoded expected={summary['packet']} captured={summary['decoded_packet']}; bits(lsb-first)={summary['bits_lsb_first']}; "
         f"TM hold after DR rise={tm_fall_us - dr_rise_us:.2f} µs; clock={clk_period_s * 1e6:.2f} µs; "
         f"Vcc_set={summary['vcc_set_V']:.2f} V; Vcc_wl_set={summary['vcc_wl_set_V']:.2f} V; "
         f"VDDA1={'external ' + format(args.vdda1, '.2f') + ' V' if args.vdda1 is not None else 'not recorded'}; "
+        f"{corrected_label}"
         f"source={args.note}"
     )
-    draw.text((left, 955), footer, fill="#333333", font=font(11))
+    draw.text((left, 1305), footer, fill="#333333", font=font(11))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     image.save(args.output, quality=95)
     print(args.output.resolve())

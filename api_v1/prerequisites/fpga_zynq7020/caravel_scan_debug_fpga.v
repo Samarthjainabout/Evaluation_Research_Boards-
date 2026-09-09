@@ -14,7 +14,7 @@ module caravel_scan_debug_fpga #(
     parameter [31:0] INITIAL_SEQUENCE_DELAY_CYCLES = 32'd0,
     parameter [4:0]  SEQ_START_ROW = 5'd3,
     parameter [4:0]  SEQ_START_COL = 5'd0,
-    parameter [31:0] FPGA_RESET_ASSERT_CYCLES = 32'd240000,
+    parameter [31:0] FPGA_RESET_ASSERT_CYCLES = 32'd24000,
     parameter        MANUAL_RESET_MODE = 1'b0,
     parameter integer DAC_VCC_SET_MV = 500,
     parameter integer DAC_VCC_WL_SET_MV = 2500

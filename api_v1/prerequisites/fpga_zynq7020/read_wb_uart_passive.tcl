@@ -115,7 +115,7 @@ set status_probe [lindex [get_hw_probes -of_objects $vio -filter {TYPE == vio_in
 
 refresh_hw_vio $vio
 set decoded [decode_status [get_property INPUT_VALUE $status_probe]]
-if {[lindex $decoded 5] != 5 && [lindex $decoded 5] != 6 && [lindex $decoded 5] != 7} {
+if {[lindex $decoded 5] != 3 && [lindex $decoded 5] != 4 && [lindex $decoded 5] != 5 && [lindex $decoded 5] != 6 && [lindex $decoded 5] != 7} {
     emit_status $decoded
     puts "ERROR: UART-capable FPGA image signature is missing"
     exit 1
@@ -137,7 +137,7 @@ if {$mode eq "collect"} {
         }
         lassign $decoded status_hex valid uart_error uart_tag uart_value signature
         set offset [expr {$uart_tag - $expected_tag}]
-        if {$signature == 5 && $valid && !$uart_error && $offset >= 0 && $offset < $collect_count} {
+        if {$signature == 3 && $valid && !$uart_error && $offset >= 0 && $offset < $collect_count} {
             set collected($offset) $uart_value
         }
         after 2
@@ -168,7 +168,7 @@ while {[clock milliseconds] < $deadline} {
         continue
     }
     lassign $decoded status_hex valid uart_error uart_tag uart_value signature
-    if {($signature == 5 || $signature == 6 || $signature == 7) && $valid && !$uart_error && $uart_tag == $expected_tag
+    if {($signature == 3 || $signature == 4 || $signature == 5 || $signature == 6 || $signature == 7) && $valid && !$uart_error && $uart_tag == $expected_tag
         && (!$require_nonzero || $uart_value != 0)} {
         set matched 1
         break

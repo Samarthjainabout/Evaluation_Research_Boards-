@@ -28,11 +28,9 @@ The default path does not require Teensy firmware. The API uses
 runtime build/program TCL files to create and control one universal bitstream.
 
 WB read/write preserves the existing DAC registers, PLL configuration, and
-external 2 MHz clock. The FPGA holds TM, DR, and DL high-impedance, applies the
-Caravel reset pulse after firmware flashing, and passively captures GPIO6 UART.
-The separate `fpga_dac_full_wb/` one-shot image and `../dac_full_wb_run.py`
-reproduce the complete WB bench DAC profile when an explicit DAC reload is
-needed.
+external 2 MHz clock. The permanent v23 FPGA image holds TM, DR, and DL
+high-impedance in WB mode, applies the Caravel reset pulse, sends the runtime
+command, and captures GPIO6 UART. There is no separate WB DAC image.
 
 WB read firmware always sends the three setup writes `0x00036472`,
 `0x462B000B`, and `0x43201405`. The default/legacy read adds `0x4002AAFF` and

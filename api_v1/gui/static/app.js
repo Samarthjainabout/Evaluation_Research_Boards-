@@ -313,9 +313,10 @@ function repaintHeatmap() {
     const value = scaleCurrent(item?.current_uA);
     node.style.background = colorFor(value, min, max);
     node.classList.toggle("active", node.dataset.key === state.heatmapActiveKey);
+    node.classList.toggle("invalid", Boolean(item && !item.ok));
     const measuredAt = item?.measurementTime ? new Date(item.measurementTime * 1000).toLocaleString() : "time unknown";
     node.title = item
-      ? `${formatCell(item.cellAddress)} ${formatScaledCurrent(value)} uS (${item.measurementMode || "read"})\n${measuredAt}\nSource: ${item.sourceRun || "unknown"}`
+      ? `${formatCell(item.cellAddress)} ${formatScaledCurrent(value)} uS (${item.measurementMode || "read"})\n${measuredAt}\nFeedback: ${item.ok ? "valid" : "invalid"}\nSource: ${item.sourceRun || "unknown"}`
       : `${node.dataset.key}: no read`;
   }
   els.scaleMin.textContent = "";
@@ -916,9 +917,9 @@ els.commandForm.addEventListener("submit", async (event) => {
     ? "the full 32x32 array in one burst"
     : payload.operation === "read-array" ? `the array starting at column ${payload.col}` : `row ${payload.row}, col ${payload.col}`;
   const extra = payload.operation === "wb-read" || payload.operation === "wb-write"
-    ? "\n\nRequires Caravel GPIO6/UART TX wired to FPGA J10-10 and RESET wired from FPGA J10-3 to Caravel. TM, DR, and DL may remain connected: the FPGA makes them high-impedance throughout WB mode. The external 2 MHz clock and all existing DAC/PLL values are preserved. This closes picocom, flashes the native WB firmware, applies one 120 ms reset-only pulse from FPGA to Caravel, and passively reads the UART return through FPGA VIO."
+    ? "\n\nRequires Caravel GPIO6/UART TX wired to FPGA J10-10 and RESET wired from FPGA J10-3 to Caravel. The permanent Caravel firmware accepts the operation and 32-bit packet at runtime, so normal WB requests do not rebuild or reflash it. DL carries the checked pulse-width startup command and returns to high-impedance before Wishbone access; TM and DR stay high-impedance. The external 2 MHz clock and all existing DAC/PLL values are preserved. If the permanent image is missing, the API installs it once and retries."
     : payload.operation === "burst-read"
-    ? "\n\nThis will use one FPGA full-array stream and one Saleae capture. It is not the resumable column-by-column read."
+    ? "\n\nThis uses one FPGA full-array stream and one reduced-resolution Saleae capture. FPGA reset/scan/hold timing and the ScanInDR-rise-through-TM-fall measurement window match single-cell read timing."
     : payload.operation === "read-array"
     ? "\n\nThis will read columns from the selected start column through column 31."
     : continueSelectedSweep

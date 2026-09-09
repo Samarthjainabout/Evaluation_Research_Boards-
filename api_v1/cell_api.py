@@ -28,8 +28,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SUMMARIZER = ROOT / "api_v1/tools/summarize_capture.py"
 DEFAULT_READ_CALIBRATION = ROOT / "api_v1/calibration/read_offset_A25E1BAA6577FA4D_0p5V.json"
 FPGA_BITSTREAM_DIR = ROOT / "api_v1/prerequisites/fpga_zynq7020/bitstreams"
-FPGA_RUNTIME_BITSTREAM = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.bit"
-FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.ltx"
+FPGA_RUNTIME_BITSTREAM = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit"
+FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.ltx"
 DEFAULT_WB_ADDRESS = 0x30000004
 DEFAULT_WB_READ_VALUE = 0x4002AA82
 DEFAULT_WB_WRITE_VALUE = 0x500888FF
@@ -210,7 +210,7 @@ class ScanDebugConfig:
     persistent_fpga_runtime: bool = True
     capture_program_pulses: bool = False
     defer_capture_copy: bool = True
-    runtime_daemon_start_timeout_seconds: float = 60.0
+    runtime_daemon_start_timeout_seconds: float = 180.0
     runtime_command_timeout_seconds: float = 20.0
     dac_teensy_reflash_enabled: bool = False
     dac_teensy_app_serial: str = "8829000"
@@ -232,29 +232,37 @@ class ScanDebugConfig:
     summarizer: Path = DEFAULT_SUMMARIZER
 
     digital_sample_rate: int = 50_000_000
-    analog_sample_rate: int = 6_250_000
-    analog_channels: str = "12,13,14,15"
+    analog_sample_rate: int = 3_125_000
+    # Capture the two commanded DAC rails as well as both current shunts.  A0
+    # and A1 let the summarizer reject a read taken with stale SET rails.
+    analog_channels: str = "0,1,12,13,14,15"
     trigger_channel: int = 11
     trigger_edge: str = "falling"
-    after_trigger_seconds: float = 0.000090
+    # At 2 MHz, 2400 clocks keep each selected cell active for 1.2 ms.
+    # Include enough margin to capture the complete single-cell read window.
+    after_trigger_seconds: float = 0.001300
     trim_data_seconds: float = 0.000003
     digital_threshold_volts: float = 1.2
     enable_adc_monitor: bool = False
     burst_initial_delay_cycles: int = 1_000_000
     burst_repeat_after_done_cycles: int = 1
     burst_capture_strategy: Literal["single", "per-cell"] = "single"
-    burst_post_dr_tm_hold_cycles: int = 100
+    burst_post_dr_tm_hold_cycles: int = 2_400
+    # Match the single-cell summarizer: average from ScanInDR rise through TM
+    # fall without trimming clocks from the end of the active read window.
+    burst_measure_skip_end_cycles: float = 0.0
     burst_fpga_reset_assert_cycles: int = 24_000
     burst_reset_release_fallback_cycles: int = 2_000
     burst_post_reset_wait_cycles: int = 128
+    # The externally supplied bench clock is 2 MHz (0.5 us period).
     burst_wb_clk_period_seconds: float = 0.0000005
     burst_single_capture_margin_seconds: float = 0.25
     burst_analog_sample_rate: int = 3_125_000
     full_array_burst_digital_sample_rate: int = 6_250_000
     full_array_burst_analog_sample_rate: int = 31_250
     full_array_burst_capture_timeout_seconds: float = 900.0
-    full_array_burst_packet_period_seconds: float = 0.01312428
-    burst_after_trigger_seconds: float = 0.000028
+    full_array_burst_packet_period_seconds: float = 0.01427428
+    burst_after_trigger_seconds: float = 0.001300
     burst_trim_data_seconds: float = 0.000003
     burst_capture_timeout_seconds: float = 420.0
     saleae_arm_timeout_seconds: float = 30.0
@@ -968,7 +976,7 @@ class ScanDebugCellAPI:
         return result
 
     def wishbone_access(self, operation: Literal["read", "write"], value: int | str | None = None) -> dict[str, object]:
-        """Flash one native WB access and passively collect its FPGA UART frame."""
+        """Run native WB through the permanent Caravel firmware and FPGA UART."""
 
         if operation not in {"read", "write"}:
             raise ValueError(f"Wishbone operation must be read or write, got {operation!r}")
@@ -987,9 +995,16 @@ class ScanDebugCellAPI:
             "fpga_reset_applied": False,
             "fpga_reset_planned": True,
             "fpga_reset_assert_ms": 120,
-            "wb_test_pins": {"TM": "high-Z", "DR": "high-Z", "DL": "high-Z"},
+            "wb_test_pins": {
+                "TM": "high-Z",
+                "DR": "high-Z",
+                "DL": "pulse-width runtime command then high-Z",
+                "CC": "low",
+            },
             "pll_changed": False,
             "fpga_uart_capture": "passive-vio",
+            "permanent_caravel_firmware": True,
+            "caravel_flash_planned": False,
             "dry_run": self.config.dry_run,
             "ok": False,
         }
@@ -1014,13 +1029,14 @@ class ScanDebugCellAPI:
             result["uart_frame_per_readback_attempt"] = True
         self._append_progress(
             operation_name,
-            "Preserving DAC and PLL; FPGA reset-only pulse will follow the firmware flash",
+            "Preserving DAC and PLL; FPGA will reset Caravel and send the WB packet at runtime",
             dac_profile_applied=False,
             fpga_reset_applied=False,
         )
 
         if self.config.dry_run:
             result["uart_tag"] = "selected at runtime to differ from the previous FPGA frame"
+            result["runtime_command"] = "operation, UART tag, and 32-bit WB value supplied through FPGA VIO"
             result["ok"] = True
             self._append_jsonl("wishbone_access.jsonl", result)
             self._append_progress(operation_name, "Dry-run Wishbone access prepared", value=result["value"])
@@ -1035,56 +1051,51 @@ class ScanDebugCellAPI:
                 operation_name,
                 "Ignoring stale FPGA UART error; waiting for a clean fresh tagged WB frame",
             )
-        base_tag = 0x57 if operation == "write" else 0x52
+        # Permanent-runtime tags intentionally do not overlap the historical
+        # compile-time firmware's 0x52/0x57 tags. A mismatched first response
+        # therefore triggers the one-time firmware migration path below.
+        base_tag = 0xA0 if operation == "write" else 0x80
         previous_tag = int(previous_uart["tag"])
         uart_tag = base_tag if not previous_uart["valid"] or previous_tag != base_tag else base_tag ^ 0x01
-
-        self._ensure_remote_wishbone_sources()
-        remote_dir = self._sh_quote(self.config.wishbone_remote_dir)
-        build_command = (
-            f"make -C {remote_dir} clean hex WB_OPERATION={operation} "
-            f"WB_WRITE_VALUE=0x{write_value:08X} WB_UART_TAG=0x{uart_tag:02X}"
-        )
-        build_log = self.config.run_dir / "wishbone_build.log"
-        build = self._run_saleae(build_command, timeout_s=180)
-        build_log.write_text(build.stdout or "")
-        if build.returncode != 0:
-            raise RuntimeError(f"Wishbone firmware build failed; see {build_log}")
+        payload = self._runtime_wb_command_payload(operation, write_value, uart_tag)
+        result["runtime_command"] = payload
+        result["uart_tag"] = f"0x{uart_tag:02X}"
 
         self._append_progress(
             operation_name,
-            "Caravel firmware built; flashing without FPGA reset or DAC update",
+            "Sending runtime WB command; DAC and PLL remain unchanged",
             uart_tag=f"0x{uart_tag:02X}",
         )
+        firmware_reflashed = False
+        try:
+            uart = self._program_runtime_payload_and_read_uart(
+                payload,
+                timeout_seconds=max(1.0, self.config.wishbone_uart_timeout_seconds),
+            )
+            if uart["tag"] != uart_tag or uart["value"] == 0xBAD0C0DE:
+                raise RuntimeError("Caravel did not acknowledge the permanent runtime command protocol")
+        except RuntimeError as first_error:
+            self._append_progress(
+                operation_name,
+                "Permanent firmware not acknowledged; installing it once and retrying",
+                recovery_reason=str(first_error),
+            )
+            self._install_permanent_wishbone_firmware()
+            firmware_reflashed = True
+            uart = self._program_runtime_payload_and_read_uart(
+                payload,
+                timeout_seconds=max(1.0, self.config.wishbone_uart_timeout_seconds),
+            )
+            if uart["tag"] != uart_tag or uart["value"] == 0xBAD0C0DE:
+                raise RuntimeError("Permanent Caravel firmware did not acknowledge the runtime WB command after flashing")
 
-        flash_python = self._sh_quote(self.config.wishbone_flash_python)
-        flash_script = self._sh_quote(self.config.wishbone_flash_script)
-        self._append_progress(operation_name, "Releasing the FTDI UART monitor for housekeeping flash")
-        release_uart = self._run_saleae(
-            "pkill -f '^picocom -b 9600 /dev/ttyUSB0$' >/dev/null 2>&1 || true; sleep 1",
-            timeout_s=10,
-        )
-        if release_uart.returncode != 0:
-            raise RuntimeError("Could not release the FTDI UART monitor before Wishbone firmware flash")
-        flash = self._run_saleae(
-            f"cd {remote_dir} && {flash_python} {flash_script} gui_wb_mode.hex",
-            timeout_s=180,
-        )
-        flash_log = self.config.run_dir / "wishbone_flash.log"
-        flash_log.write_text(flash.stdout or "")
-        if flash.returncode != 0:
-            raise RuntimeError(f"Wishbone firmware flash failed; see {flash_log}")
-
-        self._append_progress(
-            operation_name,
-            "Pulsing Caravel RESET from FPGA; TM, DR, and DL are high-impedance; DAC and PLL remain unchanged",
-        )
-        self._program_runtime_payload_once(self._runtime_reset_only_payload())
+        result["caravel_firmware_reflashed"] = firmware_reflashed
+        result["caravel_flash_planned"] = firmware_reflashed
         result["fpga_reset_applied"] = True
 
         self._append_progress(
             operation_name,
-            "Firmware flashed; passively reading UART through FPGA",
+            "Runtime command accepted; collecting WB UART result through FPGA",
             uart_wire="Caravel GPIO6 -> AX7020 J10-10",
             wait_condition="15-readback-batch" if operation == "read" else "first-frame",
             dac_profile_applied=False,
@@ -1107,11 +1118,9 @@ class ScanDebugCellAPI:
             result["readbacks"] = [f"0x{item:08X}" for item in readback_values]
             result["readbacks_collected"] = len(readback_values)
         else:
-            uart = self._read_runtime_uart_passive(
-                expected_tag=uart_tag,
-                timeout_seconds=max(1.0, self.config.wishbone_uart_timeout_seconds),
-                require_nonzero=False,
-            )
+            # The command transaction already waited for and decoded the
+            # write acknowledgement. No second UART session is needed.
+            uart["nonzero_wait_timed_out"] = False
         uart_log = self.config.run_dir / "wishbone_uart.log"
         uart_log.write_text(str(uart["log"]))
         if uart["tag"] != uart_tag:
@@ -1474,9 +1483,9 @@ synth_design -top caravel_scan_debug_fpga -part $part_name -generic [list \\
     SEQ_START_ROW={cell.row} \\
     SEQ_START_COL={cell.col} \\
     MANUAL_RESET_MODE=0 \\
-    FPGA_RESET_ASSERT_CYCLES=240000 \\
+    FPGA_RESET_ASSERT_CYCLES=24000 \\
     POST_RESET_WAIT_CYCLES=1000000 \\
-    POST_DR_TM_HOLD_CYCLES=100 \\
+    POST_DR_TM_HOLD_CYCLES=2400 \\
     REPEAT_AFTER_DONE_CYCLES=0 \\
     DAC_VCC_SET_MV={round(rails.vcc_set_v * 1000)} \\
     DAC_VCC_WL_SET_MV={round(rails.vcc_wl_set_v * 1000)} \\
@@ -1711,6 +1720,35 @@ exit
         if proc.returncode != 0:
             raise RuntimeError(proc.stdout or "could not install remote Wishbone firmware sources")
 
+    def _install_permanent_wishbone_firmware(self) -> None:
+        """Build and flash the fixed runtime-selectable Caravel image once."""
+
+        self._ensure_remote_wishbone_sources()
+        remote_dir = self._sh_quote(self.config.wishbone_remote_dir)
+        build_log = self.config.run_dir / "wishbone_build.log"
+        build = self._run_saleae(f"make -C {remote_dir} clean hex", timeout_s=180)
+        build_log.write_text(build.stdout or "")
+        if build.returncode != 0:
+            raise RuntimeError(f"Permanent Wishbone firmware build failed; see {build_log}")
+
+        release_uart = self._run_saleae(
+            "pkill -f '^picocom -b 9600 /dev/ttyUSB0$' >/dev/null 2>&1 || true; sleep 1",
+            timeout_s=10,
+        )
+        if release_uart.returncode != 0:
+            raise RuntimeError("Could not release the FTDI UART monitor before permanent firmware flash")
+
+        flash_python = self._sh_quote(self.config.wishbone_flash_python)
+        flash_script = self._sh_quote(self.config.wishbone_flash_script)
+        flash_log = self.config.run_dir / "wishbone_flash.log"
+        flash = self._run_saleae(
+            f"cd {remote_dir} && {flash_python} {flash_script} gui_wb_mode.hex",
+            timeout_s=180,
+        )
+        flash_log.write_text(flash.stdout or "")
+        if flash.returncode != 0:
+            raise RuntimeError(f"Permanent Wishbone firmware flash failed; see {flash_log}")
+
     def _ensure_runtime_bitstream(self, *, force: bool = False) -> str:
         if self.config.dry_run or (self._runtime_bitstream_ready and not force):
             return FPGA_RUNTIME_BITSTREAM
@@ -1843,7 +1881,7 @@ exit
             "REPEAT_AFTER_DONE_CYCLES": str(self.config.burst_repeat_after_done_cycles),
             "WB_CLK_PERIOD_SECONDS": str(self.config.burst_wb_clk_period_seconds),
             "FULL_ARRAY_PACKET_PERIOD_SECONDS": str(self.config.full_array_burst_packet_period_seconds),
-            "MEASURE_SKIP_END_CYCLES": "3",
+            "MEASURE_SKIP_END_CYCLES": str(self.config.burst_measure_skip_end_cycles),
             "AFTER_TRIGGER_SECONDS": str(self._burst_after_trigger_seconds(max_cells)),
             "TRIM_DATA_SECONDS": str(self.config.burst_trim_data_seconds),
             "STOP_ON_MISMATCH": "0",
@@ -2666,10 +2704,24 @@ PY
         return f"0x{payload:016X}"
 
     @staticmethod
-    def _runtime_wb_profile_payload() -> str:
-        # Bit 8 selects the WB support-rail profile.  Bit 63 is a placeholder;
-        # the runtime TCL flips the actual trigger relative to the VIO state.
-        return "0x8000000000000100"
+    def _runtime_wb_command_payload(operation: Literal["read", "write"], value: int, uart_tag: int) -> str:
+        if operation not in {"read", "write"}:
+            raise ValueError(f"runtime WB operation must be read or write, got {operation!r}")
+        if not 0 <= value <= 0xFFFFFFFF:
+            raise ValueError(f"runtime WB value must fit 32 bits, got {value}")
+        if not 0 <= uart_tag <= 0xFF:
+            raise ValueError(f"runtime WB UART tag must fit 8 bits, got {uart_tag}")
+        # Bit 8 selects the runtime-WB path. Bits [61:30] carry the packet,
+        # [29:22] carry its response tag, and bit 62 selects write. Bit 63 is
+        # a placeholder; Tcl flips the actual trigger relative to VIO state.
+        payload = (
+            (1 << 63)
+            | ((operation == "write") << 62)
+            | (value << 30)
+            | (uart_tag << 22)
+            | (1 << 8)
+        )
+        return f"0x{payload:016X}"
 
     @staticmethod
     def _runtime_reset_only_payload() -> str:
@@ -2798,10 +2850,10 @@ PY
             "nonzero_wait_timed_out": "WB_UART_NONZERO_TIMEOUT=1" in output,
             "log": output,
         }
-        if decoded["signature"] not in (5, 6, 7):
+        if decoded["signature"] not in (3, 4, 5, 6, 7):
             raise RuntimeError("The FPGA does not contain the UART-capable runtime image")
-        if expected_tag is not None and decoded["signature"] != 5:
-            raise RuntimeError("The FPGA does not contain the WB-high-Z UART v9 image")
+        if expected_tag is not None and decoded["signature"] != 3:
+            raise RuntimeError("The FPGA does not contain the permanent-WB UART image")
         if proc.returncode != 0 and not decoded["nonzero_wait_timed_out"]:
             raise RuntimeError(output or "passive Caravel UART capture failed")
         if expected_tag is not None and decoded["tag"] != expected_tag:
@@ -2844,8 +2896,8 @@ PY
         signature_match = re.search(r"WB_UART_SIGNATURE=([0-7])", output)
         matches = re.findall(r"WB_UART_READBACK_(\d{2})=0x([0-9A-Fa-f]{8})", output)
         indexed = {int(index): int(value, 16) for index, value in matches}
-        if not signature_match or int(signature_match.group(1)) != 5:
-            raise RuntimeError(output or "The FPGA does not contain the WB-high-Z UART v9 image")
+        if not signature_match or int(signature_match.group(1)) != 3:
+            raise RuntimeError(output or "The FPGA does not contain the permanent-WB UART image")
         if proc.returncode != 0 or len(indexed) != count:
             raise RuntimeError(output or f"collected only {len(indexed)} of {count} WB readbacks")
         values = [indexed[index] for index in range(1, count + 1)]
@@ -2939,7 +2991,18 @@ PY
     def _program_fpga_via_runtime_daemon(self, payload: str) -> int:
         self._ensure_runtime_vio_daemon()
         request_id = uuid.uuid4().hex
-        timeout_s = max(5.0, self.config.runtime_command_timeout_seconds)
+        command_value = int(payload, 16)
+        packet_count = (command_value >> 41) & 0x7FF
+        if packet_count == 0:
+            packet_count = 1
+        # The verified fast-reset scan is about 2.324 ms/cell at the bench's
+        # external 2 MHz wb_clk_i. Keep the host poll alive longer than the
+        # FPGA daemon so a late ERROR/OK response is reported clearly.
+        timeout_s = max(
+            5.0,
+            self.config.runtime_command_timeout_seconds,
+            20.0 + packet_count * 0.020,
+        )
         response_file = f"runtime_vio_response.{request_id}.txt"
         temp_file = f"runtime_vio_request.{request_id}.tmp"
         try:
@@ -2982,16 +3045,31 @@ PY
         self._runtime_daemon_ready = False
         if self.config.dry_run or self.config.zynq_os != "windows":
             return
-        self._run_zynq_cmd("echo stop>runtime_vio_daemon.stop", timeout_s=10)
+        try:
+            self._run_zynq_cmd("echo stop>runtime_vio_daemon.stop", timeout_s=10)
+        except subprocess.TimeoutExpired:
+            # Windows OpenSSH can delay closing the channel after CMD has
+            # already created the stop file. The heartbeat check below is
+            # authoritative, so this transport timeout is safe to tolerate.
+            pass
         deadline = time.time() + 10.0
         while time.time() < deadline:
-            exists = self._run_zynq_cmd("dir /B runtime_vio_daemon.heartbeat", timeout_s=10)
+            try:
+                exists = self._run_zynq_cmd("dir /B runtime_vio_daemon.heartbeat", timeout_s=10)
+            except subprocess.TimeoutExpired:
+                continue
             if exists.returncode != 0:
                 break
             time.sleep(0.5)
         else:
-            self._run_zynq_cmd("taskkill /IM vivado.exe /F", timeout_s=15)
-        self._run_zynq_cmd("del /Q runtime_vio_daemon.heartbeat runtime_vio_daemon.stop", timeout_s=10)
+            try:
+                self._run_zynq_cmd("taskkill /IM vivado.exe /F", timeout_s=15)
+            except subprocess.TimeoutExpired:
+                pass
+        try:
+            self._run_zynq_cmd("del /Q runtime_vio_daemon.heartbeat runtime_vio_daemon.stop", timeout_s=10)
+        except subprocess.TimeoutExpired:
+            pass
         if self._runtime_daemon_process is not None:
             try:
                 self._runtime_daemon_process.wait(timeout=5)
@@ -3089,7 +3167,9 @@ PY
                 if not scp:
                     raise RuntimeError("copying a remote Saleae capture requires rsync or scp on PATH")
                 local.mkdir(parents=True)
-                proc = self.runner.run([scp, "-r", f"{self.config.saleae_host}:{remote_output_dir}/.", str(local)])
+                # Saleae CSV exports compress extremely well; enabling SSH
+                # compression avoids multi-minute transfers over remote links.
+                proc = self.runner.run([scp, "-C", "-r", f"{self.config.saleae_host}:{remote_output_dir}/.", str(local)])
             if proc.returncode != 0:
                 raise RuntimeError(proc.stdout)
         else:

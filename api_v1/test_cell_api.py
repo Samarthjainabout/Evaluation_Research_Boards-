@@ -336,7 +336,7 @@ class CaptureCopyTests(unittest.TestCase):
                 local = api._copy_capture("/remote/capture", 3, "read", RailVoltages(1.0, 2.5))
 
             api.runner.run.assert_called_once_with(
-                ["scp.exe", "-r", "user@example.test:/remote/capture/.", str(local)]
+                ["scp.exe", "-C", "-r", "user@example.test:/remote/capture/.", str(local)]
             )
 
 
@@ -626,6 +626,32 @@ class BurstWatchdogTests(unittest.TestCase):
 
 
 class FpgaDacBitstreamTests(unittest.TestCase):
+    def test_scan_reset_uses_24000_cycles_and_matching_packet_period(self) -> None:
+        config = ScanDebugConfig()
+        source_dir = Path(__file__).parent / "prerequisites" / "fpga_zynq7020"
+
+        self.assertEqual(config.burst_fpga_reset_assert_cycles, 24_000)
+        self.assertEqual(config.burst_measure_skip_end_cycles, 0.0)
+        self.assertAlmostEqual(config.full_array_burst_packet_period_seconds, 0.01427428)
+        for name in ("caravel_scan_debug_fpga.v", "caravel_scan_debug_runtime.v"):
+            self.assertIn(
+                "FPGA_RESET_ASSERT_CYCLES = 32'd24000",
+                (source_dir / name).read_text(),
+            )
+
+    def test_runtime_stop_tolerates_windows_ssh_close_timeouts(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            api = ScanDebugCellAPI(ScanDebugConfig(run_dir=Path(temp_dir)))
+            api._run_zynq_cmd = Mock(side_effect=[
+                subprocess.TimeoutExpired("stop", 10),
+                subprocess.CompletedProcess([], 1, "", ""),
+                subprocess.TimeoutExpired("cleanup", 10),
+            ])
+
+            api._stop_runtime_vio_daemon()
+
+            self.assertEqual(api._run_zynq_cmd.call_count, 3)
+
     def test_runtime_password_startup_uses_owned_paramiko_session(self) -> None:
         with TemporaryDirectory() as temp_dir:
             api = ScanDebugCellAPI(ScanDebugConfig(run_dir=Path(temp_dir), zynq_password="private-password"))
@@ -735,6 +761,9 @@ class FpgaDacBitstreamTests(unittest.TestCase):
         self.assertIn("set packet_count [expr {($command_value >> 41) & 0x7FF}]", source)
         self.assertIn("set command_timeout_ms [expr {10000 + ($packet_count * 20)}]", source)
         self.assertIn("[clock milliseconds] + $command_timeout_ms", source)
+        self.assertIn("Always load the requested runtime image", source)
+        self.assertIn("set_property OUTPUT_VALUE 0000000000000000 $command_probe", source)
+        self.assertIn("commit_hw_vio $command_probe", source)
 
     def test_runtime_daemon_uses_a_unique_remote_log(self) -> None:
         source = Path(__file__).with_name("cell_api.py").read_text()
@@ -779,7 +808,7 @@ class FpgaDacBitstreamTests(unittest.TestCase):
 
         name = api._ensure_bitstream(cell, 0, RailVoltages(0.5, 2.5))
 
-        self.assertEqual(name, "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.bit")
+        self.assertEqual(name, "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit")
         self.assertEqual(api._ensure_bitstream(cell, 1, RailVoltages(3.0, 2.0)), name)
         self.assertEqual(api._ensure_array_bitstream(0, 31), name)
 
@@ -809,7 +838,7 @@ class FpgaDacBitstreamTests(unittest.TestCase):
         packet = 0x8000 | (18 << 10) | 18
 
         rc = api._program_fpga(
-            "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.bit",
+            "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit",
             packet=packet,
             rails=RailVoltages(2.5, 1.2),
             packet_count=1,
@@ -818,8 +847,8 @@ class FpgaDacBitstreamTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         command = api._run_zynq_powershell.call_args.args[0]
         self.assertIn("program_and_run_runtime.tcl", command)
-        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.bit", command)
-        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.ltx", command)
+        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit", command)
+        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.ltx", command)
         self.assertIn(api._runtime_command_payload(packet, RailVoltages(2.5, 1.2), 1), command)
 
     def test_fast_program_pulse_uses_runtime_ack_without_saleae_capture(self) -> None:
@@ -846,9 +875,12 @@ class WishboneModeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_u32("0x100000000")
 
-    def test_wb_profile_payload_selects_bit_eight(self) -> None:
-        payload = int(ScanDebugCellAPI._runtime_wb_profile_payload(), 16)
+    def test_runtime_wb_payload_carries_operation_value_and_tag(self) -> None:
+        payload = int(ScanDebugCellAPI._runtime_wb_command_payload("write", 0x1234ABCD, 0xA0), 16)
         self.assertEqual((payload >> 8) & 1, 1)
+        self.assertEqual((payload >> 62) & 1, 1)
+        self.assertEqual((payload >> 30) & 0xFFFFFFFF, 0x1234ABCD)
+        self.assertEqual((payload >> 22) & 0xFF, 0xA0)
 
     def test_reset_only_payload_selects_bit_seven_without_dac_profile(self) -> None:
         payload = int(ScanDebugCellAPI._runtime_reset_only_payload(), 16)
@@ -892,12 +924,30 @@ class WishboneModeTests(unittest.TestCase):
         for command in ("0x00036472", "0x462B000B", "0x43201405"):
             self.assertIn(command, setup)
         self.assertIn("0x4002AAFF", setup)
-        self.assertIn("#if WB_WRITE_VALUE == 0x4002AA82u", setup)
+        self.assertIn("command == WB_READ_LEGACY_COMMAND", setup)
+        self.assertIn("command == WB_READ_R31C30", setup)
         self.assertIn("Writing command 4", setup)
         self.assertIn("Writing command 5", setup)
-        self.assertEqual(setup.count("REG32(NEURO_ADDR) ="), 7)
         self.assertNotIn("duplicate READ", setup)
         self.assertIn("Reading back from 0x30000004", setup)
+
+    def test_wb_firmware_keeps_dac_driven_pads_analog(self) -> None:
+        source = (Path(__file__).parent / "prerequisites/caravel_wishbone/gui_wb_mode.c").read_text()
+
+        for gpio in range(25, 35):
+            self.assertIn(
+                f"reg_mprj_io_{gpio} = GPIO_MODE_USER_STD_ANALOG;",
+                source,
+            )
+        for gpio in (21, 36):
+            self.assertIn(
+                f"reg_mprj_io_{gpio} = GPIO_MODE_USER_STD_INPUT_NOPULL;",
+                source,
+            )
+        self.assertIn("reg_mprj_io_22 = command_bootstrap", source)
+        self.assertIn("reg_mprj_io_35 = GPIO_MODE_USER_STD_INPUT_NOPULL", source)
+        self.assertIn("GPIO_MODE_MGMT_STD_INPUT_NOPULL", source)
+        self.assertIn("GPIO_MODE_USER_STD_INPUT_NOPULL", source)
 
     def test_r31c30_read_is_followed_by_r31c31_packet(self) -> None:
         api = ScanDebugCellAPI(ScanDebugConfig(dry_run=True))
@@ -911,7 +961,7 @@ class WishboneModeTests(unittest.TestCase):
         api = ScanDebugCellAPI(ScanDebugConfig(zynq_os="windows"))
         lines = [
             "RUNTIME_STATUS=94C00000226AF81C",
-            "WB_UART_SIGNATURE=5",
+            "WB_UART_SIGNATURE=3",
         ]
         lines.extend(
             f"WB_UART_READBACK_{index:02d}=0x{(0 if index < 12 else 0x0007F363):08X}"
@@ -936,7 +986,18 @@ class WishboneModeTests(unittest.TestCase):
 
         for code in ("16'h199A", "16'h170A", "16'h1EB8", "16'h51EB", "16'h3333"):
             self.assertIn(code, source)
-        self.assertIn("last_frame_index <= wb_profile_i ? 5'd4 : 5'd6", source)
+        self.assertIn("last_frame_index <= wb_profile_i ? 5'd5 : 5'd12", source)
+        self.assertIn("5'd1: update_frame = 24'h0B0101", source)
+        self.assertIn("5'd4: update_frame = {8'h12, vcc_set_code[15]", source)
+        self.assertIn("5'd12: update_frame = 24'h094110", source)
+        self.assertIn("5'd5: update_frame = 24'h094158", source)
+        self.assertIn("5'd8:  initialization_frame = 24'h09FF7F", source)
+        self.assertIn("5'd24: initialization_frame = 24'h094110", source)
+        self.assertIn("VDDIO_STARTUP_DELAY_CYCLES = 32'd20000", source)
+        for code in ("DEFAULT_DAC0_CODE", "DEFAULT_DAC1_CODE", "DEFAULT_DAC5_CODE"):
+            self.assertIn(code, source)
+        self.assertIn("5'd1:  initialization_frame = 24'h0A0000", source)
+        self.assertIn("5'd2:  initialization_frame = 24'h0B0101", source)
         self.assertIn("{8'h1D, SCAN_DAC13_CODE}", source)
 
     def test_fpga_uart_result_is_parsed_from_vivado_output(self) -> None:
@@ -946,33 +1007,33 @@ class WishboneModeTests(unittest.TestCase):
         ))
 
         result = api._program_runtime_payload_and_read_uart(
-            api._runtime_wb_profile_payload(), timeout_seconds=8
+            api._runtime_wb_command_payload("read", 0x4002AA82, 0x80), timeout_seconds=8
         )
 
         self.assertEqual(result["tag"], 0x52)
         self.assertEqual(result["value"], 0x89ABCDEF)
         command = api._run_zynq_powershell.call_args.args[0]
         self.assertIn("wait_uart", command)
-        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v9.bit", command)
+        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit", command)
 
     def test_passive_fpga_uart_result_does_not_issue_runtime_command(self) -> None:
         api = ScanDebugCellAPI(ScanDebugConfig(zynq_os="windows"))
         api._run_zynq_powershell = Mock(return_value=subprocess.CompletedProcess(
             [], 0,
             "RUNTIME_STATUS=94C00000226AF81C\nWB_UART_VALID=1\nWB_UART_ERROR=0\n"
-            "WB_UART_TAG=0x53\nWB_UART_VALUE=0x0007F363\nWB_UART_SIGNATURE=5\n"
+            "WB_UART_TAG=0x83\nWB_UART_VALUE=0x0007F363\nWB_UART_SIGNATURE=3\n"
             "WB_UART_PASSIVE_MATCH=1\n",
         ))
 
         result = api._read_runtime_uart_passive(
-            expected_tag=0x53, timeout_seconds=8, require_nonzero=True
+            expected_tag=0x83, timeout_seconds=8, require_nonzero=True
         )
 
-        self.assertEqual(result["tag"], 0x53)
+        self.assertEqual(result["tag"], 0x83)
         self.assertEqual(result["value"], 0x0007F363)
         command = api._run_zynq_powershell.call_args.args[0]
         self.assertIn("read_wb_uart_passive.tcl", command)
-        self.assertIn("wait '0x53'", command)
+        self.assertIn("wait '0x83'", command)
         self.assertNotIn("program_and_run_runtime.tcl", command)
 
     def test_passive_fpga_uart_snapshot_can_ignore_only_a_stale_error(self) -> None:
@@ -988,43 +1049,60 @@ class WishboneModeTests(unittest.TestCase):
         self.assertTrue(result["error"])
         self.assertFalse(result["valid"])
 
-    def test_wb_access_preserves_dac_and_uses_fresh_passive_uart_tag(self) -> None:
+    def test_wb_access_uses_permanent_firmware_without_reflash(self) -> None:
         with TemporaryDirectory() as temp_dir:
             api = ScanDebugCellAPI(ScanDebugConfig(run_dir=Path(temp_dir), dry_run=False))
-            api._ensure_runtime_bitstream = Mock(return_value="uart_wb_highz_v9.bit")
+            api._ensure_runtime_bitstream = Mock(return_value=FPGA_RUNTIME_BITSTREAM)
             api._stop_runtime_vio_daemon = Mock()
-            api._ensure_remote_wishbone_sources = Mock()
+            api._install_permanent_wishbone_firmware = Mock()
             api._read_runtime_uart_passive = Mock(return_value={
                 "valid": True, "error": False, "tag": 0x52, "value": 0,
-                "signature": 7, "log": "snapshot",
+                "signature": 3, "log": "snapshot",
+            })
+            api._program_runtime_payload_and_read_uart = Mock(return_value={
+                "tag": 0x80, "value": 0, "log": "first frame",
             })
             api._read_runtime_uart_readbacks = Mock(return_value={
                 "values": [0] * 11 + [0x0007F363] * 4,
                 "log": "capture",
             })
-            api._run_saleae = Mock(side_effect=[
-                subprocess.CompletedProcess([], 0, "build ok", ""),
-                subprocess.CompletedProcess([], 0, "", ""),
-                subprocess.CompletedProcess([], 0, "flash ok", ""),
-            ])
-            api._program_fpga_via_runtime_daemon = Mock()
-            api._program_runtime_payload_once = Mock()
 
             result = api.wishbone_access("read", "0x4002AA82")
 
-        build_command = api._run_saleae.call_args_list[0].args[0]
-        release_command = api._run_saleae.call_args_list[1].args[0]
-        self.assertIn("WB_UART_TAG=0x53", build_command)
-        self.assertIn("picocom -b 9600 /dev/ttyUSB0", release_command)
         self.assertEqual(result["return_value"], "0x0007F363")
         self.assertEqual(result["readbacks_collected"], 15)
         self.assertEqual(result["readbacks"][:11], ["0x00000000"] * 11)
         self.assertFalse(result["dac_profile_applied"])
         self.assertTrue(result["fpga_reset_applied"])
-        api._program_fpga_via_runtime_daemon.assert_not_called()
-        api._program_runtime_payload_once.assert_called_once_with(
-            ScanDebugCellAPI._runtime_reset_only_payload()
+        self.assertFalse(result["caravel_firmware_reflashed"])
+        api._install_permanent_wishbone_firmware.assert_not_called()
+        sent_payload = api._program_runtime_payload_and_read_uart.call_args.args[0]
+        self.assertEqual(
+            sent_payload,
+            ScanDebugCellAPI._runtime_wb_command_payload("read", 0x4002AA82, 0x80),
         )
+
+    def test_wb_access_installs_permanent_firmware_only_after_missing_ack(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            api = ScanDebugCellAPI(ScanDebugConfig(run_dir=Path(temp_dir), dry_run=False))
+            api._ensure_runtime_bitstream = Mock(return_value=FPGA_RUNTIME_BITSTREAM)
+            api._stop_runtime_vio_daemon = Mock()
+            api._read_runtime_uart_passive = Mock(return_value={
+                "valid": False, "error": False, "tag": 0, "value": 0,
+                "signature": 3, "log": "snapshot",
+            })
+            api._program_runtime_payload_and_read_uart = Mock(side_effect=[
+                RuntimeError("old firmware"),
+                {"tag": 0xA0, "value": 0x12345678, "log": "ack"},
+            ])
+            api._install_permanent_wishbone_firmware = Mock()
+
+            result = api.wishbone_access("write", "0x12345678")
+
+        self.assertTrue(result["caravel_firmware_reflashed"])
+        self.assertEqual(result["return_value"], "0x12345678")
+        api._install_permanent_wishbone_firmware.assert_called_once_with()
+        self.assertEqual(api._program_runtime_payload_and_read_uart.call_count, 2)
 
     def test_uart_input_uses_j10_pin_10(self) -> None:
         source_dir = Path(__file__).parent / "prerequisites/fpga_zynq7020"
@@ -1035,16 +1113,18 @@ class WishboneModeTests(unittest.TestCase):
         self.assertNotIn("PULLUP true [get_ports caravel_uart_tx_i]", xdc)
         self.assertIn("uart_rx_8n1", runtime)
         self.assertIn("uart_result_data", runtime)
-        self.assertIn("3'b101", runtime)
+        self.assertIn("3'b011", runtime)
         self.assertIn("wb_controls_high_z ? 1'bz : caravel_tm_r", runtime)
         self.assertIn("wb_controls_high_z ? 1'bz : caravel_scan_se_r", runtime)
-        self.assertIn("wb_controls_high_z ? 1'bz : caravel_scan_si_r", runtime)
+        self.assertIn("wb_command_drive ? wb_command_data", runtime)
         self.assertIn("wb_controls_high_z <= runtime_command[8] || runtime_command[7]", runtime)
         self.assertNotIn("PULLDOWN true [get_ports caravel_tm_o]", xdc)
         self.assertNotIn("PULLUP true [get_ports caravel_scan_se_o]", xdc)
         self.assertNotIn("PULLDOWN true [get_ports caravel_scan_si_o]", xdc)
-        self.assertIn("runtime_command[7] ? ST_FPGA_RESET : ST_DAC_UPDATE", runtime)
-        self.assertIn(".BOOT_INITIALIZE(1'b0)", runtime)
+        self.assertIn("(runtime_command[8] || runtime_command[7])", runtime)
+        self.assertIn("state <= ST_WB_TX_LOW", runtime)
+        self.assertIn(".BOOT_INITIALIZE(1'b1)", runtime)
+        self.assertIn("caravel_resetb_r <= 1'b0", runtime)
 
         program_tcl = (source_dir / "program_and_run_runtime.tcl").read_text()
         passive_tcl = (source_dir / "read_wb_uart_passive.tcl").read_text()
@@ -1052,7 +1132,8 @@ class WishboneModeTests(unittest.TestCase):
         self.assertIn("BITSTREAM_SIGNATURE_MISMATCH", program_tcl)
         self.assertNotIn("commit_hw_vio", passive_tcl)
         self.assertNotIn("program_hw_devices", passive_tcl)
-        self.assertIn("BITSTREAM_SIGNATURE_MISMATCH", daemon_tcl)
+        self.assertIn("Always load the requested runtime image", daemon_tcl)
+        self.assertIn("program_hw_devices $dev", daemon_tcl)
 
 
 class SaleaeScriptUploadTests(unittest.TestCase):

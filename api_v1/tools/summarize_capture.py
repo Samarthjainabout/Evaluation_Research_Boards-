@@ -134,6 +134,30 @@ def current_window(analog_csv: Path, start_s, stop_s):
     return mean(set_values), mean(reset_values), len(set_values)
 
 
+def validate_commanded_rails(analog_csv: Path, vcc_set_v: float, vcc_wl_set_v: float, tolerance_v: float = 0.10):
+    rail_values = {"Channel 0": [], "Channel 1": []}
+    with analog_csv.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        missing = [name for name in rail_values if name not in (reader.fieldnames or [])]
+        if missing:
+            raise ValueError(f"Missing commanded-rail capture channels: {', '.join(missing)}")
+        for row in reader:
+            for name in rail_values:
+                rail_values[name].append(float(row[name]))
+
+    measured_set = mean(rail_values["Channel 0"])
+    measured_wl = mean(rail_values["Channel 1"])
+    if not math.isfinite(measured_set) or abs(measured_set - vcc_set_v) > tolerance_v:
+        raise ValueError(
+            f"Vcc_set rail mismatch: requested {vcc_set_v:.3f} V, Saleae A0 measured {measured_set:.3f} V"
+        )
+    if not math.isfinite(measured_wl) or abs(measured_wl - vcc_wl_set_v) > tolerance_v:
+        raise ValueError(
+            f"Vcc_wl_set rail mismatch: requested {vcc_wl_set_v:.3f} V, Saleae A1 measured {measured_wl:.3f} V"
+        )
+    return measured_set, measured_wl
+
+
 def validate_measurement_window(decoded, set_mean_uA, reset_mean_uA, samples):
     start, stop = decoded.get("dr_rise_s"), decoded.get("tm_fall_s")
     if start is None or stop is None or not math.isfinite(start) or not math.isfinite(stop) or stop <= start:
@@ -198,6 +222,7 @@ def main() -> int:
             decoded["dr_rise_s"],
             decoded["tm_fall_s"],
         )
+        validate_commanded_rails(local_dir / "analog.csv", args.vcc_set_v, args.vcc_wl_set_v)
         validate_measurement_window(decoded, set_mean_uA, reset_mean_uA, samples)
         adc = latest_adc(local_dir / "adc_monitor.csv")
         ok = decoded["decoded_packet"] == expected_packet

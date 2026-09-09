@@ -73,61 +73,21 @@ set_property PROBES.FILE $probes_file $dev
 set_property FULL_PROBES.FILE $probes_file $dev
 catch {refresh_hw_device $dev}
 
-set vio ""
-foreach candidate [get_hw_vios -quiet -of_objects $dev] {
-    set outputs [get_hw_probes -quiet -of_objects $candidate -filter {TYPE == vio_output}]
-    if {
-        [llength $outputs] == 1
-        && [get_property WIDTH [lindex $outputs 0]] == 64
-        && [get_property NAME [lindex $outputs 0]] eq "runtime_command"
-    } {
-        set vio $candidate
-        break
-    }
+# Always load the requested runtime image when a new API operation starts.
+# Reusing an old VIO core preserved the previous programming rail (for
+# example 2.3 V after SET) until a runtime command completed.  A failed READ
+# command could therefore capture at the stale destructive voltage.  Loading
+# the current image re-runs the VDDIO-first sequence and establishes the safe
+# read defaults (Vcc_set=0.5 V, Vcc_wl_set=2.5 V) before accepting commands.
+set reused 0
+program_hw_devices $dev
+refresh_hw_device $dev
+set vios [get_hw_vios -quiet -of_objects $dev]
+if {[llength $vios] != 1} {
+    puts "ERROR: expected one runtime VIO core after programming, found [llength $vios]"
+    exit 1
 }
-set reused [expr {$vio ne ""}]
-if {$reused} {
-    # A stale hw_server session can leave the VIO object discoverable even
-    # though its debug core no longer responds (Xicom 50-38).  Validate the
-    # core before reusing it; a failed refresh must reprogram the device.
-    if {[catch {refresh_hw_vio $vio} refresh_message]} {
-        puts "RUNTIME_VIO_REUSE_FAILED=$refresh_message"
-        set reused 0
-        set vio ""
-    } else {
-        # Reject older 64-bit runtime images without passive WB controls.
-        # WB-high-Z v9 publishes 3'b101 in status bits 21:19.
-        set candidate_inputs [get_hw_probes -quiet -of_objects $vio -filter {TYPE == vio_input}]
-        if {[llength $candidate_inputs] != 1} {
-            set reused 0
-            set vio ""
-        } elseif {[catch {
-            set candidate_status [normalized_hex64 [get_property INPUT_VALUE [lindex $candidate_inputs 0]] "runtime status"]
-            scan $candidate_status %llx candidate_status_value
-            set candidate_signature [expr {($candidate_status_value >> 19) & 7}]
-        } signature_message]} {
-            puts "RUNTIME_VIO_SIGNATURE_READ_FAILED=$signature_message"
-            set reused 0
-            set vio ""
-        } else {
-            if {$candidate_signature != 5} {
-                puts "BITSTREAM_SIGNATURE_MISMATCH=$candidate_status"
-                set reused 0
-                set vio ""
-            }
-        }
-    }
-}
-if {!$reused} {
-    program_hw_devices $dev
-    refresh_hw_device $dev
-    set vios [get_hw_vios -quiet -of_objects $dev]
-    if {[llength $vios] != 1} {
-        puts "ERROR: expected one runtime VIO core after programming, found [llength $vios]"
-        exit 1
-    }
-    set vio [lindex $vios 0]
-}
+set vio [lindex $vios 0]
 
 set output_probes [get_hw_probes -of_objects $vio -filter {TYPE == vio_output}]
 set input_probes [get_hw_probes -of_objects $vio -filter {TYPE == vio_input}]
@@ -137,6 +97,13 @@ if {[llength $output_probes] != 1 || [llength $input_probes] != 1} {
 }
 set command_probe [lindex $output_probes 0]
 set status_probe [lindex $input_probes 0]
+
+# A newly programmed device can retain a stale host-side OUTPUT_VALUE from the
+# previous VIO core.  Establish a known zero command before accepting requests
+# so the first trigger edge is generated exactly once.
+set_property OUTPUT_VALUE 0000000000000000 $command_probe
+commit_hw_vio $command_probe
+refresh_hw_vio $vio
 
 set last_request_id ""
 set last_heartbeat_ms 0
@@ -178,15 +145,15 @@ while {![file exists $stop_file]} {
                     set effective_first [format %X [expr {($requested_nibble & 7) | $next_trigger}]]
                     set effective_hex "$effective_first[string range $command_hex 1 end]"
 
-                    # A full-array command carries 1024 packets and takes about
-                    # 13 seconds with the configured reset/packet timing.  Scale
-                    # the acknowledgement deadline with the requested count so
-                    # the host does not abort a healthy FPGA sequence at 10 s.
+                    # A full-array command carries 1024 packets. Scale the
+                    # acknowledgement deadline with the requested count.
                     scan $command_hex %llx command_value
                     set packet_count [expr {($command_value >> 41) & 0x7FF}]
                     if {$packet_count == 0} {
                         set packet_count 1
                     }
+                    # The verified 2 MHz fast-reset image takes about 2.324 ms
+                    # per packet. Allow 20 ms per packet for JTAG/host margin.
                     set command_timeout_ms [expr {10000 + ($packet_count * 20)}]
 
                     set_property OUTPUT_VALUE $effective_hex $command_probe

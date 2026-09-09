@@ -35,13 +35,13 @@ set status_hex [string toupper [string trim [get_property INPUT_VALUE $status_pr
 if {[string match -nocase "0x*" $status_hex]} { set status_hex [string range $status_hex 2 end] }
 scan $status_hex %llx status_value
 set signature [expr {($status_value >> 19) & 7}]
-if {$signature != 5} { error "Expected WB-high-Z v9 signature 5, got $signature" }
+if {$signature != 3} { error "Expected permanent-WB UART signature 3, got $signature" }
 
 puts "RUNTIME_PROGRAM_ONLY_OK=1"
 puts "WB_UART_SIGNATURE=$signature"
 puts "VIO_COMMAND_COMMITTED=0"
 puts "CARAVEL_RESET_COMMAND=0"
-puts "DAC_INITIALIZATION=0"
+puts "DAC_INITIALIZATION=VDDIO_FIRST_10MS"
 close_hw_target
 disconnect_hw_server
 close_hw

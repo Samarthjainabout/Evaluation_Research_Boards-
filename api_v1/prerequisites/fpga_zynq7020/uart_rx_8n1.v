@@ -9,6 +9,7 @@ module uart_rx_8n1 #(
     parameter integer BAUD = 9600
 ) (
     input  wire       clk_i,
+    input  wire       reset_i,
     input  wire       rx_i,
     output reg  [7:0] byte_o = 8'd0,
     output reg        byte_valid_o = 1'b0,
@@ -31,6 +32,8 @@ module uart_rx_8n1 #(
     reg timing_valid = 1'b0;
     reg [2:0] bit_index = 3'd0;
     reg [7:0] shift = 8'd0;
+    reg [5:0] idle_high_count = 6'd0;
+    reg armed = 1'b0;
 
     always @(posedge clk_i) begin
         rx_meta <= rx_i;
@@ -38,7 +41,31 @@ module uart_rx_8n1 #(
         byte_valid_o <= 1'b0;
         framing_error_o <= 1'b0;
 
-        case (state)
+        if (reset_i) begin
+            state <= RX_IDLE;
+            clock_count <= 16'd0;
+            clocks_per_bit <= NOMINAL_CLKS_PER_BIT;
+            start_low_count <= 16'd0;
+            timing_valid <= 1'b0;
+            bit_index <= 3'd0;
+            shift <= 8'd0;
+            byte_o <= 8'd0;
+            idle_high_count <= 6'd0;
+            armed <= 1'b0;
+        end else if (!armed) begin
+            state <= RX_IDLE;
+            timing_valid <= 1'b0;
+            if (rx_sync) begin
+                if (idle_high_count == 6'd31) begin
+                    armed <= 1'b1;
+                    idle_high_count <= 6'd0;
+                end else begin
+                    idle_high_count <= idle_high_count + 1'b1;
+                end
+            end else begin
+                idle_high_count <= 6'd0;
+            end
+        end else case (state)
             RX_IDLE: begin
                 clock_count <= 16'd0;
                 bit_index <= 3'd0;

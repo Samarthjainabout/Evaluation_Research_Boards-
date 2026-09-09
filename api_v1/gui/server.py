@@ -42,7 +42,7 @@ API_CAPABILITIES = {
 
 _manifest_cache_lock = threading.RLock()
 _manifest_cache: dict[Path, tuple[tuple[int, int], list[dict[str, Any]]]] = {}
-_heatmap_cache: dict[Path, tuple[tuple[int, int], dict[str, dict[str, Any]]]] = {}
+_heatmap_cache: dict[tuple[Path, bool], tuple[tuple[int, int], dict[str, dict[str, Any]]]] = {}
 
 try:
     from api_v1.cell_api import DEFAULT_WB_READ_VALUE, DEFAULT_WB_WRITE_VALUE, ScanDebugConfig, parse_u32
@@ -607,21 +607,24 @@ def _measurement_time(row: dict[str, Any], manifest: Path, fallback: float,
     return fallback, "manifest-fallback"
 
 
-def _heatmap_manifest_cells(manifest: Path) -> dict[str, dict[str, Any]]:
+def _heatmap_manifest_cells(manifest: Path, *, include_invalid: bool = False) -> dict[str, dict[str, Any]]:
     try:
         stat = manifest.stat()
     except OSError:
         return {}
     signature = (stat.st_mtime_ns, stat.st_size)
+    cache_key = (manifest, include_invalid)
     with _manifest_cache_lock:
-        cached = _heatmap_cache.get(manifest)
+        cached = _heatmap_cache.get(cache_key)
         if cached and cached[0] == signature:
             return cached[1]
     latest: dict[str, dict[str, Any]] = {}
-    # Select the last valid read per cell within this append-only manifest.
+    # The rolling/default heatmap uses only valid reads.  An explicitly selected
+    # run includes every finite decoded result so failed feedback is visible and
+    # cannot be silently replaced by an older run's value.
     for row in _read_manifest(manifest):
         value = row.get("current_uA")
-        if (row.get("cellAddress") and _is_read_row(row) and row.get("ok")
+        if (row.get("cellAddress") and _is_read_row(row) and (include_invalid or row.get("ok"))
                 and value is not None and math.isfinite(value)
                 and row.get("local_output_dir") != "DRY_RUN"):
             latest[_cell_key(row["cellAddress"])] = row
@@ -633,7 +636,7 @@ def _heatmap_manifest_cells(manifest: Path) -> dict[str, dict[str, Any]]:
                     "sourceRun": manifest.parent.parent.name if manifest.parent.name == 'captures' else manifest.parent.name,
                     "measurementMode": "burst" if "burst" in str(row.get("stage", "")) else "single"}
     with _manifest_cache_lock:
-        _heatmap_cache[manifest] = (signature, out)
+        _heatmap_cache[cache_key] = (signature, out)
     return out
 
 
@@ -677,7 +680,7 @@ def _combined_cell_history(run_dir: Path, rows: list[dict[str, Any]], last_cell:
     return out
 
 
-def _summarize(run_dir: Path, rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _summarize(run_dir: Path, rows: list[dict[str, Any]], *, selected_run: bool = False) -> dict[str, Any]:
     log_events = _recent_log_events(run_dir)
     progress_events = _read_progress_events(run_dir)
     active_error = _active_error(run_dir, rows, log_events)
@@ -723,7 +726,10 @@ def _summarize(run_dir: Path, rows: list[dict[str, Any]]) -> dict[str, Any]:
     values = [row["current_uA"] for row in latest_read_by_cell.values() if row.get("current_uA") is not None]
     min_current = min(values) if values else None
     max_current = max(values) if values else None
-    heatmap_cells = _latest_heatmap_cells(run_dir)
+    heatmap_cells = (
+        _heatmap_manifest_cells(_manifest_for_run(run_dir), include_invalid=True)
+        if selected_run else _latest_heatmap_cells(run_dir)
+    )
     history = _combined_cell_history(run_dir, rows, last_cell)
     read_history = [row for row in history if _is_read_row(row)]
 
@@ -760,6 +766,7 @@ def _summarize(run_dir: Path, rows: list[dict[str, Any]]) -> dict[str, Any]:
         "thresholds_uA": thresholds,
         "thresholds_uS": {key: _conductance_uS(value) for key, value in thresholds.items()},
         "cells": list(heatmap_cells.values()),
+        "heatmapScope": "selected-run" if selected_run else "latest-valid",
         "history": history,
         "readHistory": read_history[-160:],
         "logEvents": log_events,
@@ -775,7 +782,7 @@ class GuiHandler(SimpleHTTPRequestHandler):
     config: ViewerConfig
     running_commands: dict[str, dict[str, Any]] = {}
     state_build_lock = threading.Lock()
-    state_cache: dict[Path, tuple[float, dict[str, Any]]] = {}
+    state_cache: dict[tuple[Path, bool], tuple[float, dict[str, Any]]] = {}
     run_choices_cache: tuple[float, list[dict[str, Any]]] | None = None
 
     def __init__(self, *args: Any, **kwargs: Any):
@@ -810,13 +817,15 @@ class GuiHandler(SimpleHTTPRequestHandler):
                 return
             with self.state_build_lock:
                 now = time.monotonic()
-                cached = self.state_cache.get(run_dir)
+                selected_run = bool(run_name)
+                cache_key = (run_dir, selected_run)
+                cached = self.state_cache.get(cache_key)
                 if cached and now - cached[0] < STATE_CACHE_SECONDS:
                     summary = cached[1]
                 else:
                     rows = _read_manifest(_manifest_for_run(run_dir))
-                    summary = _summarize(run_dir, rows)
-                    self.state_cache[run_dir] = (now, summary)
+                    summary = _summarize(run_dir, rows, selected_run=selected_run)
+                    self.state_cache[cache_key] = (now, summary)
 
                 choices_cached = self.run_choices_cache
                 if choices_cached and now - choices_cached[0] < STATE_CACHE_SECONDS:
@@ -860,6 +869,9 @@ class GuiHandler(SimpleHTTPRequestHandler):
         except ValueError as exc:
             self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
+        # The dedicated burst operation intentionally captures the whole array
+        # at reduced Saleae resolution. Its FPGA reset/scan/hold timing and
+        # measurement-window boundaries still match a single-cell read.
         array_mode = "burst" if operation == "burst-read" else "burst-columns"
         cli_operation = "read-array" if operation == "burst-read" else operation
         row = int(payload.get("row", 0))

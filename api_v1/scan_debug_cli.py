@@ -211,7 +211,7 @@ def main() -> int:
         default=os.environ.get("SCAN_DEBUG_BURST_CAPTURE_STRATEGY", "single"),
         help="single captures one continuous Saleae trace per burst; per-cell keeps the old rearm/export loop",
     )
-    parser.add_argument("--burst-post-dr-tm-hold-cycles", type=int, default=int(os.environ.get("SCAN_DEBUG_BURST_POST_DR_TM_HOLD_CYCLES", "100")))
+    parser.add_argument("--burst-post-dr-tm-hold-cycles", type=int, default=int(os.environ.get("SCAN_DEBUG_BURST_POST_DR_TM_HOLD_CYCLES", "2400")))
     parser.add_argument("--burst-fpga-reset-assert-cycles", type=int, default=int(os.environ.get("SCAN_DEBUG_BURST_FPGA_RESET_ASSERT_CYCLES", "24000")))
     parser.add_argument("--burst-reset-release-fallback-cycles", type=int, default=int(os.environ.get("SCAN_DEBUG_BURST_RESET_RELEASE_FALLBACK_CYCLES", "2000")))
     parser.add_argument("--burst-post-reset-wait-cycles", type=int, default=int(os.environ.get("SCAN_DEBUG_BURST_POST_RESET_WAIT_CYCLES", "128")))
@@ -220,7 +220,7 @@ def main() -> int:
     parser.add_argument("--burst-analog-sample-rate", type=int, default=int(os.environ.get("SCAN_DEBUG_BURST_ANALOG_SAMPLE_RATE", "3125000")))
     parser.add_argument("--full-array-burst-digital-sample-rate", type=int, default=int(os.environ.get("SCAN_DEBUG_FULL_ARRAY_BURST_DIGITAL_SAMPLE_RATE", "6250000")))
     parser.add_argument("--full-array-burst-analog-sample-rate", type=int, default=int(os.environ.get("SCAN_DEBUG_FULL_ARRAY_BURST_ANALOG_SAMPLE_RATE", "31250")))
-    parser.add_argument("--full-array-burst-packet-period-seconds", type=float, default=float(os.environ.get("SCAN_DEBUG_FULL_ARRAY_BURST_PACKET_PERIOD_SECONDS", "0.01312428")))
+    parser.add_argument("--full-array-burst-packet-period-seconds", type=float, default=float(os.environ.get("SCAN_DEBUG_FULL_ARRAY_BURST_PACKET_PERIOD_SECONDS", "0.01427428")))
     parser.add_argument(
         "--full-array-burst-capture-timeout-seconds",
         type=float,

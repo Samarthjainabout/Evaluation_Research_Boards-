@@ -12,7 +12,12 @@ tmp/
 .env
 .env.*
 !.env.example
-# Superseded compile-time DAC/column images; the API uses the universal runtime image.
-api_v1/prerequisites/fpga_zynq7020/bitstreams/*dac81416_vcc*_wl*_burst.bit
-# Superseded runtime artifact with unequal VIO port widths (Vivado 2019.1 mismatch).
-api_v1/prerequisites/fpga_zynq7020/bitstreams/caravel_scan_debug_runtime_dac81416_v1.*
+# Keep only the validated permanent FPGA runtime and matching probes.
+api_v1/prerequisites/fpga_zynq7020/bitstreams/*.bit
+api_v1/prerequisites/fpga_zynq7020/bitstreams/*.ltx
+!api_v1/prerequisites/fpga_zynq7020/bitstreams/caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.bit
+!api_v1/prerequisites/fpga_zynq7020/bitstreams/caravel_scan_debug_runtime_dac81416_uart_wb_highz_v23.ltx
+# Keep only the distributable Caravel image; ignore local compiler products.
+api_v1/prerequisites/caravel_wishbone/*.bin
+api_v1/prerequisites/caravel_wishbone/*.elf
+api_v1/prerequisites/caravel_wishbone/*.lst

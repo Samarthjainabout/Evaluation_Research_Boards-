@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from gui.server import DEFAULT_THRESHOLDS_UA, STATIC_DIR, _latest_heatmap_cells, _sweep_resume_info, _terminate_windows_process_tree, _read_progress_events
 from gui.server import _characterization_state, _manifest_for_run, _latest_run, _run_choices, _combined_cell_history, _parse_scan_debug_process, _latest_jsonl_object, _extract_error_message
-from gui.server import API_CAPABILITIES, _normalize_api_operation
+from gui.server import API_CAPABILITIES, _normalize_api_operation, _read_manifest, _summarize
 
 
 class CharacterizationGuiTests(unittest.TestCase):
@@ -109,8 +109,8 @@ class HeatmapScaleTests(unittest.TestCase):
         self.assertIn('DEFAULT_WB_WRITE_VALUE = "0x500888FF"', app_js)
         self.assertIn('["wb-read", "wb-write"].includes(payload.operation)', app_js)
         self.assertIn("all existing DAC/PLL values are preserved", app_js)
-        self.assertIn("applies one 120 ms reset-only pulse from FPGA to Caravel", app_js)
-        self.assertIn("the FPGA makes them high-impedance throughout WB mode", app_js)
+        self.assertIn("permanent Caravel firmware accepts the operation", app_js)
+        self.assertIn("TM and DR stay high-impedance", app_js)
 
     def test_external_wishbone_command_retains_write_value(self) -> None:
         command = "python api_v1/scan_debug_cli.py wb-write --wb-value 305441741 --run-dir api_v1/runs/wb"
@@ -130,6 +130,16 @@ class HeatmapScaleTests(unittest.TestCase):
         self.assertEqual(result["return_value"], "0x89ABCDEF")
         app_js = (STATIC_DIR / "app.js").read_text()
         self.assertIn('RETURN: ${row.return_value || "no value"} via FPGA UART', app_js)
+
+    def test_gui_burst_keeps_full_array_capture_and_single_read_timing(self) -> None:
+        server_py = (STATIC_DIR.parent / "server.py").read_text()
+        app_js = (STATIC_DIR / "app.js").read_text()
+        index_html = (STATIC_DIR / "index.html").read_text()
+
+        self.assertIn('array_mode = "burst" if operation == "burst-read" else "burst-columns"', server_py)
+        self.assertIn("one reduced-resolution Saleae capture", app_js)
+        self.assertIn("measurement window match single-cell read timing", app_js)
+        self.assertIn("Burst mode read", index_html)
 
 
 class LatestHeatmapTests(unittest.TestCase):
@@ -180,6 +190,20 @@ class LatestHeatmapTests(unittest.TestCase):
         cells = _latest_heatmap_cells(old)
         self.assertEqual(cells["4_1"]["current_uA"], 134)
         self.assertEqual(cells["3_1"]["current_uA"], 147)
+
+    def test_selected_run_includes_invalid_feedback_without_old_backfill(self):
+        self.manifest("old", [("4_1", 134, "array_burst", 100, True)], 100)
+        selected = self.manifest("selected", [("4_1", -7, "array_burst", 200, False),
+                                               ("5_1", 25, "array_burst", 200, True)], 200)
+
+        with patch("gui.server.ROOT", self.root):
+            summary = _summarize(selected, _read_manifest(selected / "manifest.csv"), selected_run=True)
+        cells = {f'{row["cellAddress"]["row"]}_{row["cellAddress"]["col"]}': row for row in summary["cells"]}
+
+        self.assertEqual(summary["heatmapScope"], "selected-run")
+        self.assertEqual(cells["4_1"]["current_uA"], -7)
+        self.assertFalse(cells["4_1"]["ok"])
+        self.assertEqual(cells["4_1"]["sourceRun"], "selected")
 
 
 class WindowsProcessTreeTerminationTests(unittest.TestCase):
