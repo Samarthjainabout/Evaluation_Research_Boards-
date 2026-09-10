@@ -4,6 +4,11 @@ module tb_dac81416_runtime_spi;
     reg clk = 1'b0;
     reg update = 1'b0;
     reg wb_profile = 1'b0;
+    reg direct_update = 1'b0;
+    reg [3:0] direct_channel = 4'd0;
+    reg [15:0] direct_code = 16'd0;
+    reg [2:0] wb_skew_select = 3'd7;
+    reg [15:0] wb_skew_code = 16'd0;
     reg [15:0] vcc_set_code = 16'h1234;
     reg [15:0] vcc_wl_set_code = 16'hABCD;
     wire sclk;
@@ -26,6 +31,11 @@ module tb_dac81416_runtime_spi;
         .clk_i(clk),
         .update_i(update),
         .wb_profile_i(wb_profile),
+        .direct_update_i(direct_update),
+        .direct_channel_i(direct_channel),
+        .direct_code_i(direct_code),
+        .wb_skew_select_i(wb_skew_select),
+        .wb_skew_code_i(wb_skew_code),
         .vcc_set_code_i(vcc_set_code),
         .vcc_wl_set_code_i(vcc_wl_set_code),
         .sclk_o(sclk),
@@ -91,9 +101,10 @@ module tb_dac81416_runtime_spi;
         expect_frame(10, 24'h118000);
         expect_frame(11, 24'h12199A);
         expect_frame(12, 24'h138000);
+        expect_frame(13, 24'h140000);
         expect_frame(14, 24'h1575C3);
         expect_frame(15, 24'h160CCD);
-        expect_frame(17, 24'h19199A);
+        expect_frame(17, 24'h192E14);
         expect_frame(18, 24'h1A170A);
         expect_frame(19, 24'h1B1EB8);
         expect_frame(20, 24'h1C51EB);
@@ -102,36 +113,52 @@ module tb_dac81416_runtime_spi;
 
         frame_count = 0;
         start_update(1'b0);
-        if (frame_count != 13) begin
-            $display("FAIL scan frame count expected=13 actual=%0d", frame_count);
+        if (frame_count != 10) begin
+            $display("FAIL scan frame count expected=10 actual=%0d", frame_count);
             failures = failures + 1;
         end
         expect_frame(0, 24'h0A0000);
         expect_frame(1, 24'h0B0101);
         expect_frame(2, 24'h0C0101);
         expect_frame(3, 24'h0D0000);
-        expect_frame(4, 24'h122468);
-        expect_frame(5, 24'h13ABCD);
-        expect_frame(6, 24'h161234);
-        expect_frame(7, 24'h19199A);
-        expect_frame(8, 24'h1A170A);
-        expect_frame(9, 24'h1B1EB8);
-        expect_frame(10, 24'h1C51EB);
-        expect_frame(11, 24'h1D3333);
-        expect_frame(12, 24'h094110);
+        expect_frame(4, 24'h140000);
+        expect_frame(5, 24'h1575C3);
+        expect_frame(6, 24'h122468);
+        expect_frame(7, 24'h13ABCD);
+        expect_frame(8, 24'h161234);
+        expect_frame(9, 24'h094110);
 
         frame_count = 0;
         start_update(1'b1);
-        if (frame_count != 6) begin
-            $display("FAIL WB frame count expected=6 actual=%0d", frame_count);
+        if (frame_count != 8) begin
+            $display("FAIL WB frame count expected=8 actual=%0d", frame_count);
             failures = failures + 1;
         end
-        expect_frame(0, 24'h19199A);
-        expect_frame(1, 24'h1A170A);
-        expect_frame(2, 24'h1B1EB8);
-        expect_frame(3, 24'h1C51EB);
-        expect_frame(4, 24'h1D3333);
-        expect_frame(5, 24'h094158);
+        expect_frame(0, 24'h14199A);
+        expect_frame(1, 24'h158000);
+        expect_frame(2, 24'h192E14);
+        expect_frame(3, 24'h1A170A);
+        expect_frame(4, 24'h1B1EB8);
+        expect_frame(5, 24'h1C51EB);
+        expect_frame(6, 24'h1D3333);
+        expect_frame(7, 24'h094148);
+
+        frame_count = 0;
+        wb_skew_select = 3'd2;
+        wb_skew_code = 16'h5C29;
+        start_update(1'b1);
+        expect_frame(4, 24'h1B5C29);
+
+        frame_count = 0;
+        direct_update = 1'b1;
+        direct_channel = 4'd10;
+        direct_code = 16'h2222;
+        start_update(1'b0);
+        if (frame_count != 1) begin
+            $display("FAIL direct frame count expected=1 actual=%0d", frame_count);
+            failures = failures + 1;
+        end
+        expect_frame(0, 24'h1A2222);
 
         if (failures == 0) begin
             $display("PASS: scan mirrors Vcc_set on DAC2/DAC6 and enables both after loading values");

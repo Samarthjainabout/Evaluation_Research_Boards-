@@ -28,11 +28,18 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SUMMARIZER = ROOT / "api_v1/tools/summarize_capture.py"
 DEFAULT_READ_CALIBRATION = ROOT / "api_v1/calibration/read_offset_A25E1BAA6577FA4D_0p5V.json"
 FPGA_BITSTREAM_DIR = ROOT / "api_v1/prerequisites/fpga_zynq7020/bitstreams"
-FPGA_RUNTIME_BITSTREAM = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.bit"
-FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.ltx"
+FPGA_RUNTIME_BITSTREAM = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v28_dualclk_iref0p9.bit"
+FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v28_dualclk_iref0p9.ltx"
 DEFAULT_WB_ADDRESS = 0x30000004
 DEFAULT_WB_READ_VALUE = 0x4002AA82
 DEFAULT_WB_WRITE_VALUE = 0x500888FF
+WB_BIAS_SKEWS: dict[str, dict[str, float | int]] = {
+    "iref": {"selector": 0, "dac": 9, "span_v": 5.0, "nominal_v": 0.9},
+    "vcomp": {"selector": 1, "dac": 10, "span_v": 10.0, "nominal_v": 0.9},
+    "bias_comp2": {"selector": 2, "dac": 11, "span_v": 5.0, "nominal_v": 0.6},
+    "vbias": {"selector": 3, "dac": 12, "span_v": 5.0, "nominal_v": 1.6},
+    "dc_bias": {"selector": 4, "dac": 13, "span_v": 5.0, "nominal_v": 1.0},
+}
 # Below CMD's 8191-character limit, including directory/shell wrappers.
 WINDOWS_REMOTE_COMMAND_LIMIT = 8000
 
@@ -233,6 +240,10 @@ class ScanDebugConfig:
     wishbone_flash_python: str = "/home/ubuntu-24-04/caravel_venv/bin/python3"
     wishbone_flash_script: str = "../../util/caravel_hkflash.py"
     wishbone_uart_timeout_seconds: float = 120.0
+    # Detailed sweeps issue a fresh read command and collect all 15 monotonically
+    # tagged frames.  They can skip the separate, read-only Vivado snapshot that
+    # is otherwise used to choose between the two base tags.
+    wishbone_skip_passive_snapshot: bool = False
     wishbone_wait_nonzero: bool = False
     hardware_queue_enabled: bool = True
     hardware_queue_host: str | None = None
@@ -249,7 +260,7 @@ class ScanDebugConfig:
     analog_channels: str = "0,1,12,13,14,15"
     trigger_channel: int = 11
     trigger_edge: str = "falling"
-    # At 2 MHz, 2400 clocks keep each selected cell active for 1.2 ms.
+    # Scan-debug runs at 2 MHz: 2400 clocks keep a cell active for 1.2 ms.
     # Include enough margin to capture the complete single-cell read window.
     after_trigger_seconds: float = 0.001300
     trim_data_seconds: float = 0.000003
@@ -265,7 +276,7 @@ class ScanDebugConfig:
     burst_fpga_reset_assert_cycles: int = 24_000
     burst_reset_release_fallback_cycles: int = 2_000
     burst_post_reset_wait_cycles: int = 128
-    # The externally supplied bench clock is 2 MHz (0.5 us period).
+    # Scan-debug receives the Si5351 2 MHz clock copy (0.5 us period).
     burst_wb_clk_period_seconds: float = 0.0000005
     burst_single_capture_margin_seconds: float = 0.25
     burst_analog_sample_rate: int = 3_125_000
@@ -986,16 +997,31 @@ class ScanDebugCellAPI:
         self._append_jsonl("cell_cycles.jsonl", result)
         return result
 
-    def wishbone_access(self, operation: Literal["read", "write"], value: int | str | None = None) -> dict[str, object]:
+    def wishbone_access(
+        self,
+        operation: Literal["read", "write"],
+        value: int | str | None = None,
+        *,
+        bias_skew: str | None = None,
+        bias_voltage_v: float | None = None,
+    ) -> dict[str, object]:
         """Run native WB through the permanent Caravel firmware and FPGA UART."""
 
         if operation not in {"read", "write"}:
             raise ValueError(f"Wishbone operation must be read or write, got {operation!r}")
         default_value = DEFAULT_WB_WRITE_VALUE if operation == "write" else DEFAULT_WB_READ_VALUE
         write_value = default_value if value is None or value == "" else parse_u32(value)
+        skew_name, skew_voltage, skew_spec = self._normalize_wb_bias_skew(bias_skew, bias_voltage_v)
 
         operation_name = f"wb-{operation}"
-        profile = {"mode": "preserved", "updated": False}
+        profile: dict[str, object] = {
+            "mode": "wb-read-bias",
+            "updated": False,
+            "vcc_wl_reset_v": 0.5,
+            "vcc_reset_v": 2.5,
+            "bias_skew": skew_name,
+            "bias_voltage_v": skew_voltage,
+        }
         result: dict[str, object] = {
             "operation": operation_name,
             "address": f"0x{DEFAULT_WB_ADDRESS:08X}",
@@ -1013,6 +1039,9 @@ class ScanDebugCellAPI:
                 "CC": "low",
             },
             "pll_changed": False,
+            "si5351_pll_hz": 900_000_000,
+            "clock_output_changed": True,
+            "clock_mode": "10 MHz WB",
             "fpga_uart_capture": "passive-vio",
             "permanent_caravel_firmware": True,
             "caravel_flash_planned": False,
@@ -1040,9 +1069,11 @@ class ScanDebugCellAPI:
             result["uart_frame_per_readback_attempt"] = True
         self._append_progress(
             operation_name,
-            "Preserving DAC and PLL; FPGA will reset Caravel and send the WB packet at runtime",
+            "Applying WB read-bias DAC profile; FPGA will reset Caravel and send the WB packet at runtime",
             dac_profile_applied=False,
             fpga_reset_applied=False,
+            bias_skew=skew_name,
+            bias_voltage_v=skew_voltage,
         )
 
         if self.config.dry_run:
@@ -1055,26 +1086,41 @@ class ScanDebugCellAPI:
 
         self._ensure_runtime_bitstream()
         self._stop_runtime_vio_daemon()
-        self._append_progress(operation_name, "Checking the passive FPGA UART receiver")
-        previous_uart = self._read_runtime_uart_passive(allow_stale_error=True)
-        if previous_uart["error"]:
+        if self.config.wishbone_skip_passive_snapshot and operation == "read":
             self._append_progress(
                 operation_name,
-                "Ignoring stale FPGA UART error; waiting for a clean fresh tagged WB frame",
+                "Skipping redundant passive UART snapshot for the tagged 15-readback sweep",
             )
+            previous_uart: dict[str, object] = {"error": False, "tag": 0xFF, "valid": False}
+            result["passive_uart_snapshot_skipped"] = True
+        else:
+            self._append_progress(operation_name, "Checking the passive FPGA UART receiver")
+            previous_uart = self._read_runtime_uart_passive(allow_stale_error=True)
+            result["passive_uart_snapshot_skipped"] = False
+            if previous_uart["error"]:
+                self._append_progress(
+                    operation_name,
+                    "Ignoring stale FPGA UART error; waiting for a clean fresh tagged WB frame",
+                )
         # Permanent-runtime tags intentionally do not overlap the historical
         # compile-time firmware's 0x52/0x57 tags. A mismatched first response
         # therefore triggers the one-time firmware migration path below.
         base_tag = 0xA0 if operation == "write" else 0x80
         previous_tag = int(previous_uart["tag"])
         uart_tag = base_tag if not previous_uart["valid"] or previous_tag != base_tag else base_tag ^ 0x01
-        payload = self._runtime_wb_command_payload(operation, write_value, uart_tag)
+        payload = self._runtime_wb_command_payload(
+            operation,
+            write_value,
+            uart_tag,
+            bias_skew=skew_name,
+            bias_voltage_v=skew_voltage,
+        )
         result["runtime_command"] = payload
         result["uart_tag"] = f"0x{uart_tag:02X}"
 
         self._append_progress(
             operation_name,
-            "Sending runtime WB command; DAC and PLL remain unchanged",
+            "Sending runtime WB command at 10 MHz; the Si5351 PLL remains fixed at 900 MHz",
             uart_tag=f"0x{uart_tag:02X}",
         )
         firmware_reflashed = False
@@ -1103,13 +1149,15 @@ class ScanDebugCellAPI:
         result["caravel_firmware_reflashed"] = firmware_reflashed
         result["caravel_flash_planned"] = firmware_reflashed
         result["fpga_reset_applied"] = True
+        result["dac_profile_applied"] = True
+        profile["updated"] = True
 
         self._append_progress(
             operation_name,
             "Runtime command accepted; collecting WB UART result through FPGA",
             uart_wire="Caravel GPIO6 -> AX7020 J10-10",
             wait_condition="15-readback-batch" if operation == "read" else "first-frame",
-            dac_profile_applied=False,
+            dac_profile_applied=True,
             fpga_reset_applied=True,
         )
         if operation == "read":
@@ -1285,6 +1333,7 @@ class ScanDebugCellAPI:
                     marker in message
                     for marker in (
                         "persistent fpga runtime command timed out",
+                        "fpga runtime command did not complete within",
                         "capture summary failed",
                         "samples=0",
                     )
@@ -1708,6 +1757,9 @@ exit
             "caravel_scan_debug_fpga.v",
             "dac81416_spi.v",
             "caravel_scan_debug_runtime.v",
+            "si5351_mode_controller.v",
+            "caravel_clock_bootstrap.v",
+            "build_clock_bootstrap.tcl",
             "dac81416_runtime_spi.v",
             "uart_rx_8n1.v",
             "caravel_scan_debug_fpga.xdc",
@@ -2717,13 +2769,90 @@ PY
         return f"0x{payload:016X}"
 
     @staticmethod
-    def _runtime_wb_command_payload(operation: Literal["read", "write"], value: int, uart_tag: int) -> str:
+    def _normalize_wb_bias_skew(
+        bias_skew: str | None,
+        bias_voltage_v: float | None,
+    ) -> tuple[str | None, float | None, dict[str, float | int] | None]:
+        if bias_skew in (None, "") and bias_voltage_v is None:
+            return None, None, None
+        if bias_skew in (None, "") or bias_voltage_v is None:
+            raise ValueError("bias skew name and voltage must be supplied together")
+        name = str(bias_skew).strip().lower()
+        if name not in WB_BIAS_SKEWS:
+            raise ValueError(f"unknown WB bias {bias_skew!r}; choose {', '.join(WB_BIAS_SKEWS)}")
+        voltage = float(bias_voltage_v)
+        spec = WB_BIAS_SKEWS[name]
+        span_v = float(spec["span_v"])
+        if not math.isfinite(voltage) or not 0.0 <= voltage <= span_v:
+            raise ValueError(f"{name} voltage must be within 0..{span_v:g} V, got {voltage}")
+        return name, voltage, spec
+
+    @staticmethod
+    def _dac_code(voltage_v: float, span_v: float) -> int:
+        return max(0, min(0xFFFF, round(float(voltage_v) * 0xFFFF / float(span_v))))
+
+    @classmethod
+    def _runtime_direct_dac_payload(cls, channel: int, voltage_v: float, span_v: float) -> str:
+        if not 0 <= channel <= 15:
+            raise ValueError(f"DAC channel must be 0..15, got {channel}")
+        if not math.isfinite(voltage_v) or not 0.0 <= voltage_v <= span_v:
+            raise ValueError(f"DAC voltage must be within 0..{span_v:g} V, got {voltage_v}")
+        code = cls._dac_code(voltage_v, span_v)
+        payload = (1 << 63) | (channel << 58) | (code << 25) | (1 << 6)
+        return f"0x{payload:016X}"
+
+    def set_bias_voltage(self, bias: str, voltage_v: float) -> dict[str, object]:
+        name, voltage, spec = self._normalize_wb_bias_skew(bias, voltage_v)
+        assert name is not None and voltage is not None and spec is not None
+        channel = int(spec["dac"])
+        span_v = float(spec["span_v"])
+        payload = self._runtime_direct_dac_payload(channel, voltage, span_v)
+        result: dict[str, object] = {
+            "operation": "dac-update",
+            "bias": name,
+            "dac_channel": channel,
+            "voltage_v": voltage,
+            "span_v": span_v,
+            "dac_code": f"0x{self._dac_code(voltage, span_v):04X}",
+            "runtime_command": payload,
+            "ok": False,
+        }
+        if not self.config.dry_run:
+            self._ensure_runtime_bitstream()
+            self._program_fpga_via_runtime_daemon(payload)
+        result["ok"] = True
+        self._append_jsonl("dac_updates.jsonl", result)
+        self._append_progress(
+            "dac-update",
+            f"Applied {name}={voltage:.3f} V on DAC{channel}",
+            bias=name,
+            dac_channel=channel,
+            voltage_v=voltage,
+        )
+        return result
+
+    @classmethod
+    def _runtime_wb_command_payload(
+        cls,
+        operation: Literal["read", "write"],
+        value: int,
+        uart_tag: int,
+        *,
+        bias_skew: str | None = None,
+        bias_voltage_v: float | None = None,
+    ) -> str:
         if operation not in {"read", "write"}:
             raise ValueError(f"runtime WB operation must be read or write, got {operation!r}")
         if not 0 <= value <= 0xFFFFFFFF:
             raise ValueError(f"runtime WB value must fit 32 bits, got {value}")
         if not 0 <= uart_tag <= 0xFF:
             raise ValueError(f"runtime WB UART tag must fit 8 bits, got {uart_tag}")
+        skew_name, skew_voltage, skew_spec = cls._normalize_wb_bias_skew(bias_skew, bias_voltage_v)
+        skew_selector = 7
+        skew_code = 0
+        if skew_name is not None and skew_voltage is not None and skew_spec is not None:
+            skew_selector = int(skew_spec["selector"])
+            skew_code = cls._dac_code(skew_voltage, float(skew_spec["span_v"]))
         # Bit 8 selects the runtime-WB path. Bits [61:30] carry the packet,
         # [29:22] carry its response tag, and bit 62 selects write. Bit 63 is
         # a placeholder; Tcl flips the actual trigger relative to VIO state.
@@ -2733,6 +2862,9 @@ PY
             | (value << 30)
             | (uart_tag << 22)
             | (1 << 8)
+            | ((skew_code >> 3) << 9)
+            | ((skew_code & 0x7) << 3)
+            | skew_selector
         )
         return f"0x{payload:016X}"
 
@@ -3008,8 +3140,8 @@ PY
         packet_count = (command_value >> 41) & 0x7FF
         if packet_count == 0:
             packet_count = 1
-        # The verified fast-reset scan is about 2.324 ms/cell at the bench's
-        # external 2 MHz wb_clk_i. Keep the host poll alive longer than the
+        # Scan-debug remains at the verified 2 MHz physical timing. Keep
+        # the host poll alive longer than the
         # FPGA daemon so a late ERROR/OK response is reported clearly.
         timeout_s = max(
             5.0,
@@ -3097,6 +3229,13 @@ PY
         if self._runtime_daemon_log_handle is not None:
             self._runtime_daemon_log_handle.close()
             self._runtime_daemon_log_handle = None
+        # Vivado's spawned hw_server can survive after the daemon process and
+        # retain a stale connection to the VIO debug core. The following
+        # one-shot WB Vivado session must open a fresh server/target.
+        try:
+            self._run_zynq_cmd("taskkill /IM hw_server.exe /F", timeout_s=15)
+        except subprocess.TimeoutExpired:
+            pass
 
     def _program_fpga(
         self,

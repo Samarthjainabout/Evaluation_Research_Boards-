@@ -15,8 +15,8 @@ tmp/
 # Keep only the validated permanent FPGA runtime and matching probes.
 api_v1/prerequisites/fpga_zynq7020/bitstreams/*.bit
 api_v1/prerequisites/fpga_zynq7020/bitstreams/*.ltx
-!api_v1/prerequisites/fpga_zynq7020/bitstreams/caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.bit
-!api_v1/prerequisites/fpga_zynq7020/bitstreams/caravel_scan_debug_runtime_dac81416_uart_wb_highz_v24.ltx
+!api_v1/prerequisites/fpga_zynq7020/bitstreams/caravel_scan_debug_runtime_dac81416_uart_wb_highz_v28_dualclk_iref0p9.bit
+!api_v1/prerequisites/fpga_zynq7020/bitstreams/caravel_scan_debug_runtime_dac81416_uart_wb_highz_v28_dualclk_iref0p9.ltx
 # Keep only the distributable Caravel image; ignore local compiler products.
 api_v1/prerequisites/caravel_wishbone/*.bin
 api_v1/prerequisites/caravel_wishbone/*.elf

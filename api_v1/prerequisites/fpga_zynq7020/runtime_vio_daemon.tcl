@@ -152,8 +152,8 @@ while {![file exists $stop_file]} {
                     if {$packet_count == 0} {
                         set packet_count 1
                     }
-                    # The verified 2 MHz fast-reset image takes about 2.324 ms
-                    # per packet. Allow 20 ms per packet for JTAG/host margin.
+                    # Scan packets retain the verified 2 MHz physical timing.
+                    # Allow 20 ms per packet for JTAG/host margin.
                     set command_timeout_ms [expr {10000 + ($packet_count * 20)}]
 
                     set_property OUTPUT_VALUE $effective_hex $command_probe

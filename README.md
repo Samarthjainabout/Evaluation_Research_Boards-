@@ -130,7 +130,7 @@ The bottom chart shows read current and programming voltage history for the sele
 
 | Setting | Default |
 |---|---|
-| Read `Vcc_set` | `1.0 V` |
+| Read `Vcc_set` | `0.5 V` |
 | Read `Vcc_wl_set` | `2.5 V` |
 | Heatmap HRS side | `100 uA` |
 | Heatmap LRS side | `400 uA` |
@@ -139,14 +139,14 @@ The bottom chart shows read current and programming voltage history for the sele
 | Read-array mode | Column-by-column burst |
 | WB read command | `0x4002AA82` when the field is blank |
 | WB write command | `0x500888FF` when the field is blank |
-| WB DAC behavior | Preserve all live DAC registers and the external 2 MHz clock/PLL state |
+| WB DAC behavior | Apply the WB read-bias profile on DAC4/5 and DAC9-13; keep the Si5351 PLL at 900 MHz and switch its output divider from scan 2 MHz to WB 10 MHz |
 
 ## Safety Notes
 
 - Keep `Dry run` checked unless you only want a simulation.
 - Unchecking `Dry run` sends commands to the hardware bench after confirmation.
 - Do not start a second hardware command while another API process is running.
-- WB operations rebuild and flash Caravel firmware. Confirm the FTDI housekeeping-SPI connection and remove `J2` before starting.
+- Program the full FPGA runtime first so DAC7 powers VDDIO at 4.0 V before any Caravel firmware access. WB operations reuse the permanent Caravel firmware and flash it only when it is absent or does not acknowledge the runtime protocol. Keep `J2` removed for that initial/recovery flash.
 - For FPGA UART return, wire Caravel `GPIO6/UART TX` to AX7020 `J10-10` and share ground. Remove Caravel `J2` before flashing and leave it removed; the FPGA captures UART directly, so it does not use the FTDI UART path.
 - The GUI can detect and display external `scan_debug_cli.py` processes, but killing them should be deliberate.
 - Older runs retain their own recorded thresholds and rails, so the trace may show old values even after defaults change.

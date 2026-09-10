@@ -13,11 +13,12 @@
 //   [24:9]  scan DAC3 Vcc_wl_set code
 //   [8]     runtime WB command marker
 //   [7]     reset-only command (preserve DACs, do not issue a scan packet)
+//   [6]     direct DAC update command (no scan/WB packet)
 //
 // For a runtime WB command, [61:30] is the 32-bit WB packet and [29:22] is
-// the expected UART tag. The FPGA resets Caravel, sends a checked command to
-// the permanent firmware as pulse-width data on ScanInDL, and waits for UART.
-// DAC outputs are not updated by runtime WB commands.
+// the expected UART tag. A WB skew uses [2:0] as the bias selector (0..4,
+// 7=nominal) and reconstructs its 16-bit DAC code from {[21:9],[5:3]}.
+// Direct DAC updates use [61:58] as channel and [40:25] as the DAC code.
 module caravel_scan_debug_runtime #(
     parameter [31:0] RESET_RELEASE_FALLBACK_CYCLES = 32'd2000,
     parameter [31:0] POST_RESET_WAIT_CYCLES = 32'd128,
@@ -28,12 +29,15 @@ module caravel_scan_debug_runtime #(
     // Deliberately slow pulse-width command link.  The management CPU polls
     // GPIO through the housekeeping bus, so millisecond-scale pulses did not
     // leave enough margin on hardware even though they looked correct on LA.
-    parameter [31:0] WB_ZERO_LOW_CYCLES = 32'd40000,
-    parameter [31:0] WB_ONE_LOW_CYCLES = 32'd160000,
-    parameter [31:0] WB_SEPARATOR_CYCLES = 32'd100000,
-    parameter [31:0] WB_TERMINATOR_CYCLES = 32'd100000
+    parameter [31:0] WB_ZERO_LOW_CYCLES = 32'd200000,
+    parameter [31:0] WB_ONE_LOW_CYCLES = 32'd800000,
+    parameter [31:0] WB_SEPARATOR_CYCLES = 32'd500000,
+    parameter [31:0] WB_TERMINATOR_CYCLES = 32'd500000
 ) (
+    input  wire sys_clk_50m_i,
     input  wire wb_clk_i,
+    inout  wire si5351_sda_io,
+    output wire si5351_scl_io,
     input  wire caravel_ready_i,
     input  wire caravel_uart_tx_i,
     output wire caravel_resetb_o,
@@ -79,6 +83,11 @@ module caravel_scan_debug_runtime #(
     reg command_counter = 1'b0;
     reg wb_profile = 1'b0;
     reg reset_only = 1'b0;
+    reg direct_dac_update = 1'b0;
+    reg [3:0] direct_dac_channel = 4'd0;
+    reg [15:0] direct_dac_code = 16'd0;
+    reg [2:0] wb_skew_select = 3'd7;
+    reg [15:0] wb_skew_code = 16'd0;
     // Passive by default so loading this image cannot drive Caravel's test
     // pins. WB commands retain high impedance; scan commands enable them.
     reg wb_controls_high_z = 1'b1;
@@ -88,6 +97,7 @@ module caravel_scan_debug_runtime #(
     reg [6:0] wb_command_bit = 7'd63;
     reg [7:0] wb_expected_tag = 8'd0;
     reg wb_ready_ack_seen = 1'b0;
+    reg clock_mode_10m_req = 1'b0;
 
     reg [15:0] vcc_set_code = 16'h0CCD;
     reg [15:0] vcc_wl_set_code = 16'h8000;
@@ -118,7 +128,37 @@ module caravel_scan_debug_runtime #(
     reg uart_command_toggle_seen = 1'b0;
     wire [15:0] active_scan_word = {op_set, seq_row, seq_col, seq_row};
 
-    // The generated VIO core is clocked by the same 2 MHz bench XCLK.  The
+    wire si5351_ready_sys;
+    wire si5351_active_10m_sys;
+    wire si5351_busy_sys;
+    wire si5351_error_sys;
+    reg si5351_ready_meta = 1'b0;
+    reg si5351_ready_sync = 1'b0;
+    reg si5351_mode_meta = 1'b0;
+    reg si5351_mode_sync = 1'b0;
+
+    si5351_mode_controller clock_controller (
+        .sys_clk_i(sys_clk_50m_i),
+        .mode_10m_req_i(clock_mode_10m_req),
+        .si5351_sda_io(si5351_sda_io),
+        .si5351_scl_io(si5351_scl_io),
+        .ready_o(si5351_ready_sys),
+        .active_10m_o(si5351_active_10m_sys),
+        .busy_o(si5351_busy_sys),
+        .error_o(si5351_error_sys)
+    );
+
+    // The request is held as a level while CLK0/CLK1 are stopped. The
+    // acknowledgement is synchronized after the newly selected clock returns.
+    always @(posedge wb_clk_i) begin
+        si5351_ready_meta <= si5351_ready_sys;
+        si5351_ready_sync <= si5351_ready_meta;
+        si5351_mode_meta <= si5351_active_10m_sys;
+        si5351_mode_sync <= si5351_mode_meta;
+    end
+
+    // The VIO core follows the returned Si5351 clock copy: 2 MHz for scan
+    // debug and 10 MHz for native Wishbone. The
     // API changes probe_out0 through JTAG and observes probe_in0 for diagnosis.
     vio_runtime_command runtime_vio (
         .clk(wb_clk_i),
@@ -132,6 +172,11 @@ module caravel_scan_debug_runtime #(
         .clk_i(wb_clk_i),
         .update_i(dac_update_req),
         .wb_profile_i(wb_profile),
+        .direct_update_i(direct_dac_update),
+        .direct_channel_i(direct_dac_channel),
+        .direct_code_i(direct_dac_code),
+        .wb_skew_select_i(wb_skew_select),
+        .wb_skew_code_i(wb_skew_code),
         .vcc_set_code_i(vcc_set_code),
         .vcc_wl_set_code_i(vcc_wl_set_code),
         .sclk_o(dac_sclk_o),
@@ -143,7 +188,7 @@ module caravel_scan_debug_runtime #(
     );
 
     uart_rx_8n1 #(
-        .CLOCK_HZ(2000000),
+        .CLOCK_HZ(10000000),
         .BAUD(9600)
     ) caravel_uart_receiver (
         .clk_i(wb_clk_i),
@@ -308,7 +353,12 @@ module caravel_scan_debug_runtime #(
                     vcc_wl_set_code <= runtime_command[24:9];
                     wb_profile <= runtime_command[8];
                     reset_only <= runtime_command[7];
-                    wb_controls_high_z <= runtime_command[8] || runtime_command[7];
+                    direct_dac_update <= runtime_command[6];
+                    direct_dac_channel <= runtime_command[61:58];
+                    direct_dac_code <= runtime_command[40:25];
+                    wb_skew_select <= runtime_command[2:0];
+                    wb_skew_code <= {runtime_command[21:9], runtime_command[5:3]};
+                    wb_controls_high_z <= runtime_command[8] || runtime_command[7] || runtime_command[6];
                     wb_command_drive <= runtime_command[8];
                     wb_command_data <= runtime_command[8];
                     wb_command_frame <= {
@@ -324,12 +374,17 @@ module caravel_scan_debug_runtime #(
                     };
                     wb_command_bit <= 7'd63;
                     wb_expected_tag <= runtime_command[29:22];
+                    clock_mode_10m_req <= runtime_command[8];
+                    // Reset is asserted before the independent 50 MHz
+                    // controller is allowed to stop and retune XCLK.
+                    caravel_resetb_r <= 1'b0;
                     dac_update_started <= 1'b0;
                     dac_busy_seen <= 1'b0;
                     busy_o <= 1'b1;
-                    // Runtime WB and reset-only operations must preserve all
-                    // currently programmed DAC outputs.
-                    state <= (runtime_command[8] || runtime_command[7])
+                    // WB applies its read-bias profile before resetting
+                    // Caravel. Reset-only preserves DACs; direct updates stop
+                    // after the requested DAC register has been written.
+                    state <= runtime_command[7] && !runtime_command[8]
                         ? ST_FPGA_RESET : ST_DAC_UPDATE;
                 end
             end
@@ -338,7 +393,11 @@ module caravel_scan_debug_runtime #(
                 caravel_resetb_r <= 1'b0;
                 busy_o <= 1'b1;
                 done_o <= 1'b0;
-                if (!dac_update_started) begin
+                if (!si5351_ready_sync || si5351_mode_sync != wb_profile) begin
+                    dac_update_req <= 1'b0;
+                    dac_update_started <= 1'b0;
+                    dac_busy_seen <= 1'b0;
+                end else if (!dac_update_started) begin
                     dac_update_req <= 1'b1;
                     dac_update_started <= 1'b1;
                 end else begin
@@ -348,15 +407,7 @@ module caravel_scan_debug_runtime #(
                     end
                     if (dac_busy_seen && dac_ready) begin
                         wait_count <= 32'd0;
-                        // WB mode only selects its DAC profile.  Caravel's
-                        // management CPU performs the native Wishbone access.
-                        // Use the same reset assert/wait path as the scan
-                        // runtime so the firmware starts from a clean reset.
-                        if (wb_profile) begin
-                            state <= ST_FPGA_RESET;
-                        end else begin
-                            state <= ST_FPGA_RESET;
-                        end
+                        state <= direct_dac_update ? ST_FINISH : ST_FPGA_RESET;
                     end
                 end
             end
@@ -371,7 +422,11 @@ module caravel_scan_debug_runtime #(
                 done_o <= 1'b0;
                 ready_low_seen_r <= 1'b0;
                 scan_cycle <= 5'd0;
-                if (wait_count >= FPGA_RESET_ASSERT_CYCLES) begin
+                if (!si5351_ready_sync || si5351_mode_sync != wb_profile) begin
+                    wait_count <= 32'd0;
+                end else if (wait_count >= (wb_profile
+                    ? (FPGA_RESET_ASSERT_CYCLES * 32'd5)
+                    : FPGA_RESET_ASSERT_CYCLES)) begin
                     caravel_resetb_r <= 1'b1;
                     wait_count <= 32'd0;
                     state <= ST_RESET_WAIT;
@@ -392,7 +447,9 @@ module caravel_scan_debug_runtime #(
                     ready_low_seen_r <= 1'b0;
                     wait_count <= 32'd0;
                     state <= ST_POST_WAIT;
-                end else if (wait_count >= RESET_RELEASE_FALLBACK_CYCLES) begin
+                end else if (wait_count >= (wb_profile
+                    ? (RESET_RELEASE_FALLBACK_CYCLES * 32'd5)
+                    : RESET_RELEASE_FALLBACK_CYCLES)) begin
                     ready_low_seen_r <= 1'b0;
                     wait_count <= 32'd0;
                     state <= ST_POST_WAIT;
@@ -508,7 +565,12 @@ module caravel_scan_debug_runtime #(
                     packets_remaining <= 11'd0;
                     wb_profile <= runtime_command[8];
                     reset_only <= runtime_command[7];
-                    wb_controls_high_z <= runtime_command[8] || runtime_command[7];
+                    direct_dac_update <= runtime_command[6];
+                    direct_dac_channel <= runtime_command[61:58];
+                    direct_dac_code <= runtime_command[40:25];
+                    wb_skew_select <= runtime_command[2:0];
+                    wb_skew_code <= {runtime_command[21:9], runtime_command[5:3]};
+                    wb_controls_high_z <= runtime_command[8] || runtime_command[7] || runtime_command[6];
                     wb_command_drive <= runtime_command[8];
                     wb_command_data <= runtime_command[8];
                     wb_command_frame <= {
@@ -524,9 +586,14 @@ module caravel_scan_debug_runtime #(
                     };
                     wb_command_bit <= 7'd63;
                     wb_expected_tag <= runtime_command[29:22];
+                    clock_mode_10m_req <= runtime_command[8];
+                    caravel_resetb_r <= 1'b0;
                     wait_count <= 32'd0;
                     ready_low_seen_r <= 1'b0;
-                    state <= ST_FPGA_RESET;
+                    dac_update_started <= 1'b0;
+                    dac_busy_seen <= 1'b0;
+                    state <= runtime_command[7] && !runtime_command[8]
+                        ? ST_FPGA_RESET : ST_DAC_UPDATE;
                 end else if (uart_result_valid && uart_result_tag == wb_expected_tag) begin
                     wait_count <= 32'd0;
                     state <= ST_FINISH;

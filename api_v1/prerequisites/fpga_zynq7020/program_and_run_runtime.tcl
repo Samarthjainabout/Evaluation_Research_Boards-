@@ -35,7 +35,7 @@ if {[llength $targets] == 0} {
     exit 1
 }
 set target [lindex $targets 0]
-# The runtime VIO debug hub is clocked by the 2 MHz bench XCLK.  Keep JTAG
+# The runtime VIO debug hub follows the selected 2/10 MHz Si5351 XCLK. Keep JTAG
 # below that so XSDB traffic is sampled reliably on the AX7020/Digilent link.
 set_property PARAM.FREQUENCY 1000000 $target
 open_hw_target $target

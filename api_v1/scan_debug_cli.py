@@ -17,6 +17,7 @@ try:
         SET_PROGRAM_VCC_WL_V,
         DEFAULT_WB_READ_VALUE,
         DEFAULT_WB_WRITE_VALUE,
+        WB_BIAS_SKEWS,
         parse_u32,
         RailVoltages,
         ScanDebugCellAPI,
@@ -32,6 +33,7 @@ except ImportError:
         SET_PROGRAM_VCC_WL_V,
         DEFAULT_WB_READ_VALUE,
         DEFAULT_WB_WRITE_VALUE,
+        WB_BIAS_SKEWS,
         parse_u32,
         RailVoltages,
         ScanDebugCellAPI,
@@ -157,6 +159,7 @@ def main() -> int:
             "read-array",
             "wb-read",
             "wb-write",
+            "dac-update",
             "build-runtime-bitstream",
             "build-array-bitstreams",
         ],
@@ -263,6 +266,10 @@ def main() -> int:
                             f"defaults: wb-read=0x{DEFAULT_WB_READ_VALUE:08X}, "
                             f"wb-write=0x{DEFAULT_WB_WRITE_VALUE:08X}"
                         ))
+    parser.add_argument("--bias-skew", choices=tuple(WB_BIAS_SKEWS),
+                        help="single DAC read-bias to override for WB or dac-update")
+    parser.add_argument("--bias-voltage", type=float,
+                        help="voltage for --bias-skew")
     parser.add_argument("--wishbone-remote-dir", default=os.environ.get(
         "SCAN_DEBUG_WISHBONE_REMOTE_DIR",
         "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode",
@@ -287,8 +294,12 @@ def main() -> int:
     parser.add_argument("--hardware-queue-stale-seconds", type=float, default=float(os.environ.get("SCAN_DEBUG_HARDWARE_QUEUE_STALE_SECONDS", "43200")))
     args = parser.parse_args()
     apply_saved_experiment_defaults(args, sys.argv[1:])
-    if args.operation not in {"read-array", "wb-read", "wb-write", "build-runtime-bitstream", "build-array-bitstreams"} and args.row is None:
+    if args.operation not in {"read-array", "wb-read", "wb-write", "dac-update", "build-runtime-bitstream", "build-array-bitstreams"} and args.row is None:
         parser.error("--row is required for cell operations")
+    if args.operation == "dac-update" and (args.bias_skew is None or args.bias_voltage is None):
+        parser.error("dac-update requires --bias-skew and --bias-voltage")
+    if args.operation in {"wb-read", "wb-write"} and ((args.bias_skew is None) != (args.bias_voltage is None)):
+        parser.error("WB bias skew requires both --bias-skew and --bias-voltage")
     if args.operation in {"wb-read", "wb-write"}:
         try:
             if args.wb_value not in (None, ""):
@@ -315,6 +326,8 @@ def main() -> int:
         "confirm_reads": args.confirm_reads, "noise_allowance_uA": api._read_noise_allowance(),
         "wb_command_value": f"0x{selected_wb_value:08X}" if selected_wb_value is not None else None,
         "wb_write_value": f"0x{selected_wb_value:08X}" if selected_wb_value is not None else None,
+        "bias_skew": args.bias_skew,
+        "bias_voltage_V": args.bias_voltage,
     })
     with api.hardware_queue(args.operation):
         if args.operation == "cycle":
@@ -332,9 +345,19 @@ def main() -> int:
         elif args.operation == "read-array":
             result = api.read_array(args.row_start, args.row_end, args.col_start, args.col_end, mode=args.array_mode)
         elif args.operation == "wb-read":
-            result = api.wishbone_access("read", args.wb_value)
+            result = api.wishbone_access(
+                "read", args.wb_value,
+                bias_skew=args.bias_skew, bias_voltage_v=args.bias_voltage,
+            )
         elif args.operation == "wb-write":
-            result = api.wishbone_access("write", args.wb_value)
+            result = api.wishbone_access(
+                "write", args.wb_value,
+                bias_skew=args.bias_skew, bias_voltage_v=args.bias_voltage,
+            )
+        elif args.operation == "dac-update":
+            result = api.set_bias_voltage(args.bias_skew, args.bias_voltage)
+        elif args.operation == "build-runtime-bitstream":
+            result = {"operation": "build-runtime-bitstream", "bitstream": api._ensure_runtime_bitstream(force=True)}
         else:
             result = api.prebuild_array_column_bitstreams(
                 row_start=args.row_start,

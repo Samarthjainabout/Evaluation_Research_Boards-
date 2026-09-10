@@ -11,12 +11,17 @@ module dac81416_runtime_spi #(
     // request an explicit profile update through update_i.
     parameter BOOT_INITIALIZE = 1'b1,
     // Keep a conservative startup delay before any other DAC output is
-    // enabled. At the current 200 kHz bench clock this is about 100 ms.
+    // enabled. At the 2 MHz scan-debug clock this is 10 ms.
     parameter [31:0] VDDIO_STARTUP_DELAY_CYCLES = 32'd20000
 ) (
     input  wire        clk_i,
     input  wire        update_i,
     input  wire        wb_profile_i,
+    input  wire        direct_update_i,
+    input  wire [3:0]  direct_channel_i,
+    input  wire [15:0] direct_code_i,
+    input  wire [2:0]  wb_skew_select_i,
+    input  wire [15:0] wb_skew_code_i,
     input  wire [15:0] vcc_set_code_i,
     input  wire [15:0] vcc_wl_set_code_i,
     output reg         sclk_o = 1'b0,
@@ -40,14 +45,16 @@ module dac81416_runtime_spi #(
     // Support rails from the known-good complete bench profile.
     localparam [15:0] DEFAULT_DAC0_CODE    = 16'h199A; // 0.5 V
     localparam [15:0] DEFAULT_DAC1_CODE    = 16'h8000; // 2.5 V
-    localparam [15:0] DEFAULT_DAC5_CODE    = 16'h75C3; // 2.3 V
+    localparam [15:0] DEFAULT_DAC5_CODE    = 16'h75C3; // 2.3 V scan support rail
+    localparam [15:0] WB_DAC4_CODE         = 16'h199A; // 0.5 V Vcc_wl_reset
+    localparam [15:0] WB_DAC5_CODE         = 16'h8000; // 2.5 V Vcc_reset
     // Restore the earlier bench rail profile requested on 2026-09-03.
     // DAC7 uses the 0..5 V range: 0xCCCC = 4.0 V VDDIO.
     localparam [15:0] DEFAULT_VDDIO_CODE   = 16'hCCCC;
 
-    // Shared scan/WB bias profile requested for the active chip.  WB commands
-    // preserve these live registers; scan updates reapply the same values.
-    localparam [15:0] SCAN_DAC9_CODE  = 16'h199A;
+    // Shared scan/WB bias profile requested for the active chip. WB commands
+    // apply these nominal values unless one bias is explicitly skewed.
+    localparam [15:0] SCAN_DAC9_CODE  = 16'h2E14;
     localparam [15:0] SCAN_DAC10_CODE = 16'h170A;
     localparam [15:0] SCAN_DAC11_CODE = 16'h1EB8;
     localparam [15:0] SCAN_DAC12_CODE = 16'h51EB;
@@ -55,7 +62,7 @@ module dac81416_runtime_spi #(
 
     // WB-only voltages.  DAC9/11/12/13 use the configured 0..5 V span;
     // DAC10 uses its configured 0..10 V span.
-    localparam [15:0] WB_IREF_DAC9_CODE       = 16'h199A; // 0.5 V
+    localparam [15:0] WB_IREF_DAC9_CODE       = 16'h2E14; // 0.9 V
     localparam [15:0] WB_VCOMP_DAC10_CODE     = 16'h170A; // 0.9 V
     localparam [15:0] WB_BIAS_COMP2_DAC11_CODE = 16'h1EB8; // 0.6 V
     localparam [15:0] WB_VBIAS_DAC12_CODE     = 16'h51EB; // 1.6 V
@@ -69,6 +76,11 @@ module dac81416_runtime_spi #(
     reg [23:0] frame = 24'd0;
     reg runtime_update = 1'b0;
     reg wb_profile = 1'b0;
+    reg direct_update = 1'b0;
+    reg [3:0] direct_channel = 4'd0;
+    reg [15:0] direct_code = 16'd0;
+    reg [2:0] wb_skew_select = 3'd7;
+    reg [15:0] wb_skew_code = 16'd0;
     reg [15:0] vcc_set_code = DEFAULT_VCC_SET_CODE;
     reg [15:0] vcc_wl_set_code = DEFAULT_VCC_WL_CODE;
 
@@ -121,15 +133,22 @@ module dac81416_runtime_spi #(
     function [23:0] update_frame;
         input [4:0] index;
         begin
-            if (wb_profile) begin
+            if (direct_update) begin
                 case (index)
-                    5'd0: update_frame = {8'h19, WB_IREF_DAC9_CODE};
-                    5'd1: update_frame = {8'h1A, WB_VCOMP_DAC10_CODE};
-                    5'd2: update_frame = {8'h1B, WB_BIAS_COMP2_DAC11_CODE};
-                    5'd3: update_frame = {8'h1C, WB_VBIAS_DAC12_CODE};
-                    5'd4: update_frame = {8'h1D, WB_DC_BIAS_DAC13_CODE};
-                    // WB mode does not use the two scan-programming rails.
-                    5'd5: update_frame = 24'h094158;
+                    5'd0: update_frame = {4'h1, direct_channel, direct_code};
+                    default: update_frame = 24'h000000;
+                endcase
+            end else if (wb_profile) begin
+                case (index)
+                    5'd0: update_frame = {8'h14, WB_DAC4_CODE};
+                    5'd1: update_frame = {8'h15, WB_DAC5_CODE};
+                    5'd2: update_frame = {8'h19, wb_skew_select == 3'd0 ? wb_skew_code : WB_IREF_DAC9_CODE};
+                    5'd3: update_frame = {8'h1A, wb_skew_select == 3'd1 ? wb_skew_code : WB_VCOMP_DAC10_CODE};
+                    5'd4: update_frame = {8'h1B, wb_skew_select == 3'd2 ? wb_skew_code : WB_BIAS_COMP2_DAC11_CODE};
+                    5'd5: update_frame = {8'h1C, wb_skew_select == 3'd3 ? wb_skew_code : WB_VBIAS_DAC12_CODE};
+                    5'd6: update_frame = {8'h1D, wb_skew_select == 3'd4 ? wb_skew_code : WB_DC_BIAS_DAC13_CODE};
+                    // Keep DAC4/DAC5 active in WB; DAC3/6/8/14 remain off.
+                    5'd7: update_frame = 24'h094148;
                     default: update_frame = 24'h000000;
                 endcase
             end else begin
@@ -141,16 +160,15 @@ module dac81416_runtime_spi #(
                     5'd1: update_frame = 24'h0B0101;
                     5'd2: update_frame = 24'h0C0101;
                     5'd3: update_frame = 24'h0D0000;
-                    5'd4: update_frame = {8'h12, vcc_set_code[15] ? 16'hFFFF : {vcc_set_code[14:0], 1'b0}};
-                    5'd5: update_frame = {8'h13, vcc_wl_set_code};
-                    5'd6: update_frame = {8'h16, vcc_set_code};
-                    5'd7: update_frame = {8'h19, SCAN_DAC9_CODE};
-                    5'd8: update_frame = {8'h1A, SCAN_DAC10_CODE};
-                    5'd9: update_frame = {8'h1B, SCAN_DAC11_CODE};
-                    5'd10: update_frame = {8'h1C, SCAN_DAC12_CODE};
-                    5'd11: update_frame = {8'h1D, SCAN_DAC13_CODE};
-                    // Keep WB-unused DAC4/8/14 off; re-enable DAC3 and DAC6.
-                    5'd12: update_frame = 24'h094110;
+                    5'd4: update_frame = 24'h140000;
+                    5'd5: update_frame = {8'h15, DEFAULT_DAC5_CODE};
+                    5'd6: update_frame = {8'h12, vcc_set_code[15] ? 16'hFFFF : {vcc_set_code[14:0], 1'b0}};
+                    5'd7: update_frame = {8'h13, vcc_wl_set_code};
+                    5'd8: update_frame = {8'h16, vcc_set_code};
+                    // Bias DAC9..13 deliberately remain untouched so a
+                    // runtime skew survives the following scan read.
+                    // Restore the original scan power state: DAC4/8/14 off.
+                    5'd9: update_frame = 24'h094110;
                     default: update_frame = 24'h000000;
                 endcase
             end
@@ -167,9 +185,14 @@ module dac81416_runtime_spi #(
                     vcc_set_code    <= vcc_set_code_i;
                     vcc_wl_set_code <= vcc_wl_set_code_i;
                     wb_profile      <= wb_profile_i;
+                    direct_update   <= direct_update_i;
+                    direct_channel  <= direct_channel_i;
+                    direct_code     <= direct_code_i;
+                    wb_skew_select  <= wb_skew_select_i;
+                    wb_skew_code    <= wb_skew_code_i;
                     runtime_update  <= 1'b1;
                     frame_index     <= 5'd0;
-                    last_frame_index <= wb_profile_i ? 5'd5 : 5'd12;
+                    last_frame_index <= direct_update_i ? 5'd0 : (wb_profile_i ? 5'd7 : 5'd9);
                     ready_o         <= 1'b0;
                     state           <= SPI_LOAD;
                 end

@@ -45,7 +45,7 @@ _manifest_cache: dict[Path, tuple[tuple[int, int], list[dict[str, Any]]]] = {}
 _heatmap_cache: dict[tuple[Path, bool], tuple[tuple[int, int], dict[str, dict[str, Any]]]] = {}
 
 try:
-    from api_v1.cell_api import DEFAULT_WB_READ_VALUE, DEFAULT_WB_WRITE_VALUE, ScanDebugConfig, parse_u32
+    from api_v1.cell_api import DEFAULT_WB_READ_VALUE, DEFAULT_WB_WRITE_VALUE, WB_BIAS_SKEWS, ScanDebugConfig, parse_u32
 
     _DEFAULT_SCAN_CONFIG = ScanDebugConfig()
     DEFAULT_THRESHOLDS_UA = {
@@ -73,6 +73,9 @@ except Exception:
         return parsed
     DEFAULT_THRESHOLDS_UA = {"set": 70.0, "reset": 5.0}
     DEFAULT_SWEEP_PULSE_COUNTS = {"set": 112, "reset": 40}
+    WB_BIAS_SKEWS = {
+        "iref": {}, "vcomp": {}, "bias_comp2": {}, "vbias": {}, "dc_bias": {},
+    }
 
 
 @dataclass(frozen=True)
@@ -882,6 +885,8 @@ class GuiHandler(SimpleHTTPRequestHandler):
         dry_run = bool(payload.get("dryRun", False))
         confirmed = bool(payload.get("confirmHardware", False))
         wb_value = DEFAULT_WB_READ_VALUE if operation == "wb-read" else DEFAULT_WB_WRITE_VALUE
+        bias_skew = str(payload.get("biasSkew", "")).strip().lower()
+        bias_voltage = _float_or_none(payload.get("biasVoltage"))
         if operation in {"wb-read", "wb-write"}:
             try:
                 raw_wb_value = payload.get("wbValue", "")
@@ -891,6 +896,12 @@ class GuiHandler(SimpleHTTPRequestHandler):
                 )
             except ValueError as exc:
                 self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                return
+            if bool(bias_skew) != (bias_voltage is not None):
+                self._send_json({"error": "WB bias skew requires both biasSkew and biasVoltage."}, HTTPStatus.BAD_REQUEST)
+                return
+            if bias_skew and bias_skew not in WB_BIAS_SKEWS:
+                self._send_json({"error": f"Unknown WB bias skew {bias_skew!r}."}, HTTPStatus.BAD_REQUEST)
                 return
         if (
             operation not in SCAN_DEBUG_OPERATIONS | WISHBONE_OPERATIONS
@@ -947,6 +958,8 @@ class GuiHandler(SimpleHTTPRequestHandler):
         command_env = os.environ.copy()
         if operation in {"wb-read", "wb-write"}:
             cmd.extend(["--wb-value", f"0x{wb_value:08X}"])
+            if bias_skew:
+                cmd.extend(["--bias-skew", bias_skew, "--bias-voltage", str(bias_voltage)])
             if operation == "wb-read":
                 cmd.extend(["--wishbone-wait-nonzero", "--wishbone-uart-timeout-seconds", "120"])
         elif operation not in {"read-array", "burst-read"}:
@@ -990,6 +1003,8 @@ class GuiHandler(SimpleHTTPRequestHandler):
             "row": row,
             "col": col,
             "wbValue": f"0x{wb_value:08X}" if operation in {"wb-read", "wb-write"} else "",
+            "biasSkew": bias_skew,
+            "biasVoltage": bias_voltage,
             "runDir": str(run_dir.relative_to(ROOT)),
             "logPath": str(log_path.relative_to(ROOT)),
             "started": time.time(),
@@ -1026,6 +1041,8 @@ class GuiHandler(SimpleHTTPRequestHandler):
                     "row": item.get("row"),
                     "col": item.get("col"),
                     "wbValue": item.get("wbValue", ""),
+                    "biasSkew": item.get("biasSkew", ""),
+                    "biasVoltage": item.get("biasVoltage"),
                     "runDir": item.get("runDir"),
                     "started": item.get("started"),
                     **_active_capture_rails(proc.pid),

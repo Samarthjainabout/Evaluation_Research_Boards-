@@ -5,7 +5,7 @@
 // bit.  That clean first low pulse lets the receiver measure the actual UART
 // bit period, whether Caravel emits nominal 9600 baud or scales it with XCLK.
 module uart_rx_8n1 #(
-    parameter integer CLOCK_HZ = 2000000,
+    parameter integer CLOCK_HZ = 10000000,
     parameter integer BAUD = 9600
 ) (
     input  wire       clk_i,
