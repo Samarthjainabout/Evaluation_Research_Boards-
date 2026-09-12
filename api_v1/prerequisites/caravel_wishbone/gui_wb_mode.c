@@ -26,8 +26,11 @@
 #define WB_READ_SETUP_3 0x43201405u
 #define WB_READ_LEGACY_LOCATION 0x4002AAFFu
 #define WB_READ_LEGACY_COMMAND 0x4002AA82u
-#define WB_READ_R31C30 0x7FE2AA82u
-#define WB_READ_R31C31 0x7FF2AA82u
+#define WB_PACKET_MODE_MASK 0xC0000000u
+#define WB_PACKET_READ_MODE 0x40000000u
+#define WB_PACKET_COL_MASK 0x01F00000u
+#define WB_PACKET_COL30 0x01E00000u
+#define WB_PACKET_COL31 0x01F00000u
 #define WB_READ_POST_ACK_WB_CYCLES 500u
 #define WB_READBACK_ATTEMPTS 15u
 #define WB_UART_REPLAY_DELAY_CYCLES 100000u
@@ -208,12 +211,18 @@ static void issue_read_setup_once(uint32_t command)
         wait_cycles(500);
         print("[TC_READ_HW] Writing command 5: 0x4002AA82\n");
         REG32(NEURO_ADDR) = command;
-    } else if (command == WB_READ_R31C30) {
-        print("[TC_READ_HW] Writing command 4: 0x7FE2AA82\n");
+    } else if ((command & (WB_PACKET_MODE_MASK | WB_PACKET_COL_MASK)) ==
+               (WB_PACKET_READ_MODE | WB_PACKET_COL30)) {
+        uint32_t paired_col31 = (command & ~WB_PACKET_COL_MASK) | WB_PACKET_COL31;
+        print("[TC_READ_HW] Writing command 4: ");
+        print_hex32_local(command);
+        print("\n");
         REG32(NEURO_ADDR) = command;
         wait_cycles(500);
-        print("[TC_READ_HW] Writing command 5: 0x7FF2AA82\n");
-        REG32(NEURO_ADDR) = WB_READ_R31C31;
+        print("[TC_READ_HW] Writing command 5: ");
+        print_hex32_local(paired_col31);
+        print("\n");
+        REG32(NEURO_ADDR) = paired_col31;
     } else {
         print("[TC_READ_HW] Writing command 4: ");
         print_hex32_local(command);
