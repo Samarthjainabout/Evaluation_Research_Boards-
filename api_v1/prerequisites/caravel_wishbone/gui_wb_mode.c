@@ -24,8 +24,11 @@
 #define WB_READ_SETUP_1 0x00036472u
 #define WB_READ_SETUP_2 0x462B000Bu
 #define WB_READ_SETUP_3 0x43201405u
+#define WB_PROGRAM_SETUP_1 0x8000FFFFu
+#define WB_PROGRAM_SETUP_2 0x00000000u
+#define WB_PROGRAM_SETUP_3 0x440017FFu
 #define WB_READ_LEGACY_LOCATION 0x4002AAFFu
-#define WB_READ_LEGACY_COMMAND 0x4002AA82u
+#define WB_READ_LEGACY_COMMAND 0x4002AAFFu
 #define WB_PACKET_MODE_MASK 0xC0000000u
 #define WB_PACKET_READ_MODE 0x40000000u
 #define WB_PACKET_COL_MASK 0x01F00000u
@@ -209,7 +212,7 @@ static void issue_read_setup_once(uint32_t command)
         print("[TC_READ_HW] Writing command 4: 0x4002AAFF\n");
         REG32(NEURO_ADDR) = WB_READ_LEGACY_LOCATION;
         wait_cycles(500);
-        print("[TC_READ_HW] Writing command 5: 0x4002AA82\n");
+        print("[TC_READ_HW] Writing command 5: 0x4002AAFF\n");
         REG32(NEURO_ADDR) = command;
     } else if ((command & (WB_PACKET_MODE_MASK | WB_PACKET_COL_MASK)) ==
                (WB_PACKET_READ_MODE | WB_PACKET_COL30)) {
@@ -223,6 +226,18 @@ static void issue_read_setup_once(uint32_t command)
         print_hex32_local(paired_col31);
         print("\n");
         REG32(NEURO_ADDR) = paired_col31;
+    } else if ((command & (WB_PACKET_MODE_MASK | WB_PACKET_COL_MASK)) ==
+               (WB_PACKET_READ_MODE | WB_PACKET_COL31)) {
+        uint32_t paired_col30 = (command & ~WB_PACKET_COL_MASK) | WB_PACKET_COL30;
+        print("[TC_READ_HW] Writing command 4: ");
+        print_hex32_local(paired_col30);
+        print("\n");
+        REG32(NEURO_ADDR) = paired_col30;
+        wait_cycles(500);
+        print("[TC_READ_HW] Writing command 5: ");
+        print_hex32_local(command);
+        print("\n");
+        REG32(NEURO_ADDR) = command;
     } else {
         print("[TC_READ_HW] Writing command 4: ");
         print_hex32_local(command);
@@ -231,6 +246,38 @@ static void issue_read_setup_once(uint32_t command)
     }
     wait_cycles(WB_READ_POST_ACK_WB_CYCLES);
     print("[TC_READ_HW] Reading back from 0x30000004\n");
+}
+
+static void issue_program_setup(uint32_t command)
+{
+    // The programming packet itself leaves the IP read response at the WB
+    // register. Do not send a separate READ packet after SET/RESET; collect
+    // the response below with REG32 reads.
+    print("[TC_PROGRAM_HW] Writing command 1: 0x8000FFFF\n");
+    REG32(NEURO_ADDR) = WB_PROGRAM_SETUP_1;
+    wait_cycles(500);
+
+    print("[TC_PROGRAM_HW] Writing command 2: 0x00000000\n");
+    REG32(NEURO_ADDR) = WB_PROGRAM_SETUP_2;
+    wait_cycles(500);
+
+    print("[TC_PROGRAM_HW] Writing command 3: 0x440017FF\n");
+    REG32(NEURO_ADDR) = WB_PROGRAM_SETUP_3;
+    wait_cycles(500);
+
+    print("[TC_PROGRAM_HW] Writing command 4: ");
+    print_hex32_local(command);
+    print("\n");
+    REG32(NEURO_ADDR) = command;
+    wait_cycles(500);
+
+    // Silicon pipeline workaround: the first program packet primes the IP;
+    // the identical second packet is required for the operation to be accepted.
+    print("[TC_PROGRAM_HW] Writing command 5 REPEAT: ");
+    print_hex32_local(command);
+    print("\n");
+    REG32(NEURO_ADDR) = command;
+    wait_cycles(900);
 }
 
 static uint32_t perform_readbacks_and_stream(uint8_t base_tag)
@@ -343,15 +390,33 @@ void main(void)
     print("\n");
 
     if (command.write) {
-        REG32(NEURO_ADDR) = command.value;
-        result = command.value;
-        uart_send_result_frame(command.tag, result);
-        print("[WB_GUI_WRITE] address=0x30000004 value=");
-        print_hex32_local(result);
-        print("\nWB_GUI_DONE\n");
-        while (1) {
-            wait_cycles(1000000);
+        uint32_t mode = command.value & WB_PACKET_MODE_MASK;
+        if (mode == 0u || mode == 0xC0000000u) {
+            issue_program_setup(command.value);
+            result = perform_readbacks_and_stream(command.tag);
+            print("[WB_GUI_PROGRAM] command=");
+            print_hex32_local(command.value);
+            print(" address=0x30000004 readback=");
+            print_hex32_local(result);
+            print("\nWB_GUI_DONE\n");
+
+            while (1) {
+                for (uint32_t attempt = 0; attempt < WB_READBACK_ATTEMPTS; attempt++) {
+                    wait_cycles(WB_UART_REPLAY_DELAY_CYCLES);
+                    uart_send_result_frame((uint8_t)(command.tag + attempt), wb_readbacks[attempt]);
+                }
+            }
+        } else {
+            REG32(NEURO_ADDR) = command.value;
+            result = command.value;
             uart_send_result_frame(command.tag, result);
+            print("[WB_GUI_WRITE] address=0x30000004 value=");
+            print_hex32_local(result);
+            print("\nWB_GUI_DONE\n");
+            while (1) {
+                wait_cycles(1000000);
+                uart_send_result_frame(command.tag, result);
+            }
         }
     }
 
