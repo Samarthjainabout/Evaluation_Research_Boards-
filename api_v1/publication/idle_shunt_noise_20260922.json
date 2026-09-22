@@ -1,0 +1,79 @@
+{
+  "baseline_id": "rram130_32x32_publication_v1",
+  "step": 2,
+  "measurement": "idle shunt offset and noise",
+  "captured_at_local": "2026-09-22T16:06:13+08:00/2026-09-22T16:08:33+08:00",
+  "cell_operation_issued": false,
+  "reset_issued": false,
+  "rail_write_issued": false,
+  "method": {
+    "independent_captures": 3,
+    "duration_s_each": 1.0,
+    "analog_sample_rate_hz": 31250,
+    "shunt_ohm": 470.0,
+    "set_path_equation": "I_uA = (A12 - A13) / 470 * 1e6",
+    "reset_path_equation": "I_uA = (A14 - A15) / 470 * 1e6",
+    "averaging_block_samples": 1000,
+    "averaging_block_duration_ms": 32.0,
+    "remote_sources": [
+      "/home/ubuntu-24-04/saleae-api/captures/fpga-scan0000-la12-15-20260922-160613",
+      "/home/ubuntu-24-04/saleae-api/captures/fpga-scan0000-la12-15-20260922-160819",
+      "/home/ubuntu-24-04/saleae-api/captures/fpga-scan0000-la12-15-20260922-160833"
+    ]
+  },
+  "per_capture": [
+    {
+      "sample_count": 33858,
+      "set_path": {"mean_uA": -20.767084, "offset_mV": -9.760529, "sample_std_uA": 6.332541, "sample_peak_to_peak_uA": 42.553191, "block_mean_std_uA": 0.979656},
+      "reset_path": {"mean_uA": -13.064828, "offset_mV": -6.140469, "sample_std_uA": 5.960465, "sample_peak_to_peak_uA": 44.680851, "block_mean_std_uA": 0.874839}
+    },
+    {
+      "sample_count": 33858,
+      "set_path": {"mean_uA": -23.449124, "offset_mV": -11.021088, "sample_std_uA": 6.404246, "sample_peak_to_peak_uA": 42.553191, "block_mean_std_uA": 1.058992},
+      "reset_path": {"mean_uA": -13.939570, "offset_mV": -6.551598, "sample_std_uA": 6.150538, "sample_peak_to_peak_uA": 44.680851, "block_mean_std_uA": 1.114665}
+    },
+    {
+      "sample_count": 32766,
+      "set_path": {"mean_uA": -23.605749, "offset_mV": -11.094702, "sample_std_uA": 6.304246, "sample_peak_to_peak_uA": 42.553191, "block_mean_std_uA": 0.897288},
+      "reset_path": {"mean_uA": -12.956022, "offset_mV": -6.089330, "sample_std_uA": 6.095666, "sample_peak_to_peak_uA": 44.680851, "block_mean_std_uA": 1.116992}
+    }
+  ],
+  "aggregate": {
+    "sample_count": 100482,
+    "set_path": {
+      "mean_uA": -22.596468,
+      "offset_mV": -10.620340,
+      "sample_std_uA": 6.480451,
+      "sample_peak_to_peak_uA": 42.553191,
+      "capture_mean_range_uA": 2.838665,
+      "capture_mean_std_uA": 1.595613,
+      "all_block_mean_std_uA": 1.622620
+    },
+    "reset_path": {
+      "mean_uA": -13.324097,
+      "offset_mV": -6.262326,
+      "sample_std_uA": 6.085069,
+      "sample_peak_to_peak_uA": 44.680851,
+      "capture_mean_range_uA": 0.983548,
+      "capture_mean_std_uA": 0.539194,
+      "all_block_mean_std_uA": 1.131033
+    }
+  },
+  "existing_read_calibration_comparison": {
+    "file": "api_v1/calibration/read_offset_A25E1BAA6577FA4D_0p5V.json",
+    "sample_rate_hz": 31250,
+    "stored_set_path_offset_mV": -10.407760,
+    "three_capture_set_path_offset_mV": -10.625440,
+    "difference_mV": -0.217680,
+    "difference_equivalent_uA": -0.463149,
+    "stored_noise_allowance_uA": 3.0,
+    "decision": "retain existing calibration",
+    "basis": "The averaged offset shift is 0.463 uA and the three-capture mean range is 2.839 uA, both within the stored 3 uA allowance. The allowance applies to averaged read windows, not individual 31.25 kS/s samples."
+  },
+  "status": "pass_for_averaged_read_offset",
+  "limitations": [
+    "Instantaneous sample standard deviation is about 6 uA, so a single raw sample is not a publication-grade conductance estimate.",
+    "The reset-path offset is characterized here but is not used by the current A12-A13 scan-read calibration.",
+    "This passive measurement does not close the pending physical verification of DAC0, DAC1, DAC7, or DAC9-DAC13."
+  ]
+}
