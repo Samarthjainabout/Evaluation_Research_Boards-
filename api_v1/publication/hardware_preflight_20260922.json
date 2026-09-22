@@ -1,0 +1,44 @@
+{
+  "baseline_id": "rram130_32x32_publication_v1",
+  "captured_at": "2026-09-22T15:18:11+08:00",
+  "chip_id": null,
+  "ambient_temperature_c": null,
+  "cell_operation_issued": false,
+  "fpga_runtime": {
+    "artifact": "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_read_repair.bit",
+    "sha256": "db1a440159e1d99e85279cd3ee342e95aa59e7a787ecc3bb361f88540a9f58b0",
+    "programmed_after_power_cycle": true
+  },
+  "dac_command_acknowledgements": [
+    {"dac": 9, "signal": "Iref", "commanded_v": 1.0, "code": "0x3333", "acknowledged": true},
+    {"dac": 10, "signal": "Vcomp", "commanded_v": 0.9, "code": "0x170A", "acknowledged": true},
+    {"dac": 11, "signal": "Bias_comp2", "commanded_v": 0.6, "code": "0x1EB8", "acknowledged": true},
+    {"dac": 12, "signal": "VBIAS", "commanded_v": 1.6, "code": "0x51EB", "acknowledged": true},
+    {"dac": 13, "signal": "dc_bias", "commanded_v": 1.5, "code": "0x4CCC", "acknowledged": true}
+  ],
+  "passive_saleae_capture": {
+    "remote_output_dir": "/home/ubuntu-24-04/saleae-api/captures/fpga-scan0000-la12-15-20260922-151811",
+    "reset_skipped": true,
+    "rail_writes_skipped": true,
+    "duration_s": 0.5,
+    "analog_sample_rate_hz": 31250,
+    "clock_period_s": 5e-7,
+    "clock_frequency_mhz": 2.0,
+    "channels": [
+      {"channel": "A0", "signal": "Vcc_set", "mean_v": 0.495401026, "std_v": 0.006709363, "min_v": 0.478, "max_v": 0.509},
+      {"channel": "A1", "signal": "Vcc_wl_set", "mean_v": 2.499468486, "std_v": 0.002686221, "min_v": 2.492, "max_v": 2.507},
+      {"channel": "A2", "signal": "Vcc_reset", "mean_v": 2.289053413, "std_v": 0.004498077, "min_v": 2.279, "max_v": 2.304},
+      {"channel": "A3", "signal": "Vcc_wl_reset", "mean_v": 0.004114251, "std_v": 0.004038186, "min_v": -0.004, "max_v": 0.016},
+      {"channel": "A4", "signal": "VDDA1", "mean_v": 3.01882817, "std_v": 0.004006526, "min_v": 3.006, "max_v": 3.032},
+      {"channel": "A5", "signal": "VDDC2", "mean_v": 2.094322882, "std_v": 0.003080596, "min_v": 2.084, "max_v": 2.104}
+    ]
+  },
+  "fixed_rail_physical_verification": {
+    "status": "pending",
+    "reason": "The connected Saleae channels do not monitor VDDIO or DAC9-DAC13. Command acknowledgement proves code delivery but is not a physical voltage measurement.",
+    "unmeasured_signals": ["Vcc_read", "Vcc_wl_read", "VDDIO", "Iref", "Vcomp", "Bias_comp2", "VBIAS", "dc_bias"]
+  },
+  "digital_baseline_ok": true,
+  "electrical_baseline_ok": false,
+  "publication_ready": false
+}

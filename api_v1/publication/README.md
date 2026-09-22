@@ -30,3 +30,9 @@ shared baseline because they change between sessions.
 The v35 binary and probes are release artifacts frozen by SHA-256. The tracked
 FPGA RTL/build script predates v35, so do not rebuild over the release artifact
 until a rebuilt image has been validated and shown equivalent on hardware.
+
+`hardware_preflight_20260922.json` records the first post-freeze hardware
+application and passive Saleae capture. DAC9-DAC13 command acknowledgements and
+the connected A0-A5 measurements are preserved separately: an acknowledgement
+is not treated as a physical voltage measurement. The publication gate remains
+pending until the fixed rails in `measured_rails_v1.csv` are measured directly.
