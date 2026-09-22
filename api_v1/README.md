@@ -16,7 +16,19 @@ The API keeps the experiment behavior used in the recent stair-pulse runs:
 - reset/read polarity uses `OP_SET=0` and ramps rails until read current crosses the reset threshold;
 - Saleae A12-A13 is treated as the set shunt current through `shunt_ohms`, default `470 ohms`.
 
-## 2026-09-11 dual-clock Iref 0.9 V backup
+## Current publication baseline
+
+New characterization runs use the frozen
+[`publication/baseline_v1.json`](./publication/baseline_v1.json): v35 FPGA
+runtime, permanent Caravel firmware, scan at 2 MHz, WB at 10 MHz,
+`Vcc_read=0.5 V`, `Vcc_wl_read=2.5 V`, `Iref=1.0 V`, `Vcomp=0.9 V`,
+`Bias_comp2=0.6 V`, `VBIAS=1.6 V`, `dc_bias=1.5 V`, `VDDIO=4.0 V`, and a
+470-ohm shunt. Verify hashes and physical rail measurements with
+[`publication/verify_baseline.py`](./publication/verify_baseline.py) before a
+publication run. The dated v28 material below is retained only as historical
+validation evidence and is not the active baseline.
+
+## Historical: 2026-09-11 dual-clock Iref 0.9 V backup
 
 This revision is the permanent combined scan-debug/Wishbone setup. Keep only
 the following deployable FPGA pair and the single Caravel firmware image:

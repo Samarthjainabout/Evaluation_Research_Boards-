@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "baseline_id": "rram130_32x32_publication_v1",
+  "status": "frozen_pending_electrical_verification",
+  "array": {
+    "technology_nm": 130,
+    "rows": 32,
+    "columns": 32,
+    "physical_cells": 1024,
+    "capacity_kbit": 1
+  },
+  "artifacts": [
+    {
+      "role": "fpga_bitstream",
+      "path": "api_v1/prerequisites/fpga_zynq7020/bitstreams/caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_read_repair.bit",
+      "sha256": "db1a440159e1d99e85279cd3ee342e95aa59e7a787ecc3bb361f88540a9f58b0"
+    },
+    {
+      "role": "fpga_debug_probes",
+      "path": "api_v1/prerequisites/fpga_zynq7020/bitstreams/caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_read_repair.ltx",
+      "sha256": "45943f443fbe039b7790e6a5cc68af00f5bea5ee95ab6c67a87417eb1cc98809"
+    },
+    {
+      "role": "caravel_firmware_hex",
+      "path": "api_v1/prerequisites/caravel_wishbone/gui_wb_mode.hex",
+      "sha256": "0998ad922f6a982a113c43b696e03f73651c2cb9ea6e475a06f1b24ac7c3abae"
+    },
+    {
+      "role": "caravel_firmware_source",
+      "path": "api_v1/prerequisites/caravel_wishbone/gui_wb_mode.c",
+      "sha256": "f69c09010b468d645c1c198325cf6179ab97c5f36fe8341ad0670aef6bbc5bc1"
+    }
+  ],
+  "artifact_provenance": {
+    "v35_release_commit": "9512dd1",
+    "documentation_commit": "0bb0baa",
+    "fpga_source_rebuild_verified": false,
+    "note": "The v35 BIT/LTX pair is frozen by hash. The tracked FPGA build script and RTL predate the v35 release artifact, so a source rebuild must not replace the frozen BIT until equivalence is demonstrated."
+  },
+  "clocks": {
+    "si5351_pll_mhz": 900.0,
+    "scan_debug_mhz": 2.0,
+    "wishbone_mhz": 10.0,
+    "vio_control_mhz": 50.0
+  },
+  "readout": {
+    "shunt_ohms": 470.0,
+    "scan_read_hold_clocks": 100,
+    "scan_read_hold_us": 50.0,
+    "wishbone_tdc_fields": {
+      "column_bits": "18:14",
+      "coarse_bits": "13:8",
+      "fine_bits": "7:0"
+    }
+  },
+  "fixed_rails": [
+    {"dac": 0, "signal": "Vcc_read", "span_v": 10.0, "commanded_v": 0.5},
+    {"dac": 1, "signal": "Vcc_wl_read", "span_v": 5.0, "commanded_v": 2.5},
+    {"dac": 7, "signal": "VDDIO", "span_v": 5.0, "commanded_v": 4.0},
+    {"dac": 9, "signal": "Iref", "span_v": 5.0, "commanded_v": 1.0},
+    {"dac": 10, "signal": "Vcomp", "span_v": 10.0, "commanded_v": 0.9},
+    {"dac": 11, "signal": "Bias_comp2", "span_v": 5.0, "commanded_v": 0.6},
+    {"dac": 12, "signal": "VBIAS", "span_v": 5.0, "commanded_v": 1.6},
+    {"dac": 13, "signal": "dc_bias", "span_v": 5.0, "commanded_v": 1.5}
+  ],
+  "program_rails": {
+    "set": {"vcc_dac": 2, "wordline_dac": 3, "experiment_defined": true},
+    "reset": {"vcc_dac": 5, "wordline_dac": 4, "experiment_defined": true}
+  },
+  "measurement_requirements": {
+    "rail_measurements_csv": "api_v1/publication/measured_rails_v1.csv",
+    "all_fixed_rails_must_pass": true,
+    "measured_voltage_source": "external DMM or calibrated logic-analyser analogue input",
+    "temperature_c_required": true,
+    "chip_id_required": true
+  }
+}

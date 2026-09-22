@@ -28,17 +28,17 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SUMMARIZER = ROOT / "api_v1/tools/summarize_capture.py"
 DEFAULT_READ_CALIBRATION = ROOT / "api_v1/calibration/read_offset_A25E1BAA6577FA4D_0p5V.json"
 FPGA_BITSTREAM_DIR = ROOT / "api_v1/prerequisites/fpga_zynq7020/bitstreams"
-FPGA_RUNTIME_BITSTREAM = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v28_dualclk_iref0p9.bit"
-FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v28_dualclk_iref0p9.ltx"
+FPGA_RUNTIME_BITSTREAM = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_read_repair.bit"
+FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_read_repair.ltx"
 DEFAULT_WB_ADDRESS = 0x30000004
 DEFAULT_WB_READ_VALUE = 0x4002AA82
 DEFAULT_WB_WRITE_VALUE = 0x500888FF
 WB_BIAS_SKEWS: dict[str, dict[str, float | int]] = {
-    "iref": {"selector": 0, "dac": 9, "span_v": 5.0, "nominal_v": 0.9},
+    "iref": {"selector": 0, "dac": 9, "span_v": 5.0, "nominal_v": 1.0},
     "vcomp": {"selector": 1, "dac": 10, "span_v": 10.0, "nominal_v": 0.9},
     "bias_comp2": {"selector": 2, "dac": 11, "span_v": 5.0, "nominal_v": 0.6},
     "vbias": {"selector": 3, "dac": 12, "span_v": 5.0, "nominal_v": 1.6},
-    "dc_bias": {"selector": 4, "dac": 13, "span_v": 5.0, "nominal_v": 1.0},
+    "dc_bias": {"selector": 4, "dac": 13, "span_v": 5.0, "nominal_v": 1.5},
 }
 # Below CMD's 8191-character limit, including directory/shell wrappers.
 WINDOWS_REMOTE_COMMAND_LIMIT = 8000

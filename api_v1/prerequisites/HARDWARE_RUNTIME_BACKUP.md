@@ -20,6 +20,11 @@ Artifacts:
 - `caravel_wishbone/gui_wb_mode.c`
 - `caravel_wishbone/gui_wb_mode.hex`
 
+The publication-characterization baseline, hash verifier, and physical rail
+measurement checklist are in `../publication/`. The API selects this v35 image
+and uses the frozen nominal WB biases Iref=1.0 V, Vcomp=0.9 V,
+Bias_comp2=0.6 V, VBIAS=1.6 V, and dc_bias=1.5 V.
+
 SHA-256:
 
 - BIT: `db1a440159e1d99e85279cd3ee342e95aa59e7a787ecc3bb361f88540a9f58b0`

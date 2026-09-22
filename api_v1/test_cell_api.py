@@ -812,7 +812,7 @@ class FpgaDacBitstreamTests(unittest.TestCase):
 
         name = api._ensure_bitstream(cell, 0, RailVoltages(0.5, 2.5))
 
-        self.assertEqual(name, "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v28_dualclk_iref0p9.bit")
+        self.assertEqual(name, "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_read_repair.bit")
         self.assertEqual(api._ensure_bitstream(cell, 1, RailVoltages(3.0, 2.0)), name)
         self.assertEqual(api._ensure_array_bitstream(0, 31), name)
 
@@ -842,7 +842,7 @@ class FpgaDacBitstreamTests(unittest.TestCase):
         packet = 0x8000 | (18 << 10) | 18
 
         rc = api._program_fpga(
-            "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v28_dualclk_iref0p9.bit",
+            "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_read_repair.bit",
             packet=packet,
             rails=RailVoltages(2.5, 1.2),
             packet_count=1,
@@ -851,8 +851,8 @@ class FpgaDacBitstreamTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         command = api._run_zynq_powershell.call_args.args[0]
         self.assertIn("program_and_run_runtime.tcl", command)
-        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v28_dualclk_iref0p9.bit", command)
-        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v28_dualclk_iref0p9.ltx", command)
+        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_read_repair.bit", command)
+        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_read_repair.ltx", command)
         self.assertIn(api._runtime_command_payload(packet, RailVoltages(2.5, 1.2), 1), command)
 
     def test_fast_program_pulse_uses_runtime_ack_without_saleae_capture(self) -> None:
@@ -947,7 +947,10 @@ class WishboneModeTests(unittest.TestCase):
             self.assertIn(command, setup)
         self.assertIn("0x4002AAFF", setup)
         self.assertIn("command == WB_READ_LEGACY_COMMAND", setup)
-        self.assertIn("command == WB_READ_R31C30", setup)
+        self.assertIn("WB_PACKET_READ_MODE | WB_PACKET_COL30", setup)
+        self.assertIn("WB_PACKET_READ_MODE | WB_PACKET_COL31", setup)
+        self.assertIn("paired_col31", setup)
+        self.assertIn("paired_col30", setup)
         self.assertIn("Writing command 4", setup)
         self.assertIn("Writing command 5", setup)
         self.assertNotIn("duplicate READ", setup)
@@ -1044,7 +1047,7 @@ class WishboneModeTests(unittest.TestCase):
         self.assertEqual(result["value"], 0x89ABCDEF)
         command = api._run_zynq_powershell.call_args.args[0]
         self.assertIn("wait_uart", command)
-        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v28_dualclk_iref0p9.bit", command)
+        self.assertIn("caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_read_repair.bit", command)
 
     def test_passive_fpga_uart_result_does_not_issue_runtime_command(self) -> None:
         api = ScanDebugCellAPI(ScanDebugConfig(zynq_os="windows"))
