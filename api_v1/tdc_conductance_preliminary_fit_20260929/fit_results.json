@@ -1,0 +1,30 @@
+{
+  "selection": {
+    "source_states": 12,
+    "used_states": 8,
+    "maximum_scan_pair_range_uS": 8.0
+  },
+  "coarse_only": {
+    "equation": "G31-G30 = -108.417128 + 6.094420*coarse [uS]",
+    "intercept_uS": -108.41712824010918,
+    "coarse_uS_per_count": 6.094419835529362,
+    "rmse_uS": 10.244600781838159,
+    "r_squared": 0.8235395679156634
+  },
+  "coarse_plus_fine_diagnostic": {
+    "equation": "G31-G30 = -93.535948 + 5.962676*coarse + -0.249310*fine [uS]",
+    "intercept_uS": -93.53594757896859,
+    "coarse_uS_per_count": 5.962675689773866,
+    "fine_uS_per_count": -0.24930954936682426,
+    "rmse_uS": 9.459578202999523,
+    "r_squared": 0.8495470166946903
+  },
+  "wrap_aware_diagnostic": {
+    "tdc_definition": "T = 100*coarse + 99 - fine",
+    "equation": "G31-G30 = -111.671440 + 0.060976*T [uS]",
+    "intercept_uS": -111.67143951608497,
+    "uS_per_tdc_count": 0.06097552295001781,
+    "rmse_uS": 9.916009668474903,
+    "r_squared": 0.8346778125418862
+  }
+}

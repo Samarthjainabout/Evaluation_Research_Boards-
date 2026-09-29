@@ -1,0 +1,9 @@
+row,state_index,phase,vcc_V,wl_V,G30_mean_uS,G31_mean_uS,delta_mean_uS,delta_range_uS,first_coarse,first_fine,coarse,fine,tdc_wrap_aware,scan_repeat_count,wb_repeat_count,wb_coarse_fine_repeats,source_file
+4,0,baseline,,,20.832653391284065,17.903740476152755,-2.928912915131309,2.1665538748407105,19,64,19,64,1935,2,1,"[[19, 64]]",api_v1/runs/fine_count_calibration_20260928_225726/fine_count_calibration.csv
+4,1,after-set,2.4,1.56,24.258876725354316,60.71264028019141,36.453763554837096,3.0215145138192767,22,56,22,56,2243,2,1,"[[22, 56]]",api_v1/runs/fine_count_calibration_20260928_225726/fine_count_calibration.csv
+4,2,after-set,2.4,1.75,39.20394327211513,112.79096709438308,73.58702382226795,4.298095541856995,29,41,29,41,2958,2,1,"[[29, 41]]",api_v1/runs/fine_count_calibration_20260928_225726/fine_count_calibration.csv
+4,3,after-reset,2.3,1.19,31.49905810899684,106.84777230857671,75.34871419957986,2.2319259541674654,29,56,29,56,2943,2,1,"[[29, 56]]",api_v1/runs/fine_count_calibration_20260928_225726/fine_count_calibration.csv
+4,6,after-reset,2.3,1.94,27.30821098456596,75.86392497020267,48.555713985636714,2.907769252473315,27,16,27,23,2776,2,3,"[[27, 16], [27, 32], [27, 23]]",api_v1/runs/fine_count_calibration_20260928_225726/fine_count_calibration.csv
+6,1,after-set,2.4,1.56,16.35172364965267,40.58585410368573,24.234130454033068,5.905825050481631,22,14,23,59.5,2339.5,2,3,"[[22, 14], [23, 62], [23, 57]]",api_v1/runs/fine_count_calibration_20260928_225726/fine_count_calibration.csv
+6,3,after-reset,2.3,1.19,65.62127768401984,94.79574367549881,29.174465991478964,4.546818627626415,20,33,20,20,2079,2,3,"[[20, 33], [20, 8], [20, 20]]",api_v1/runs/fine_count_calibration_20260928_225726/fine_count_calibration.csv
+6,4,after-reset,2.3,1.31,48.565898470382876,79.12142154950345,30.555523079120572,1.5378911503349926,25,64,25,55.5,2543.5,2,3,"[[25, 64], [25, 47], [24, 32]]",api_v1/runs/fine_count_calibration_20260928_225726/fine_count_calibration.csv
