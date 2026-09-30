@@ -1,0 +1,102 @@
+{
+  "target": "G31-G30 uS",
+  "transform": "mean(100*C_i+99-F_i)",
+  "checkpoints": [
+    {
+      "row": 13,
+      "visit": 0,
+      "independent_WB_conversions": 20,
+      "C_mean": 21,
+      "F_mean": 51.1,
+      "T_mean": 2147.9,
+      "G31_minus_G30_uS": 12.622789308262016,
+      "row_weight": 0.5,
+      "fit_eligible": true,
+      "quality_flags": []
+    },
+    {
+      "row": 30,
+      "visit": 0,
+      "independent_WB_conversions": 10,
+      "C_mean": 17,
+      "F_mean": 25.5,
+      "T_mean": 1773.5,
+      "G31_minus_G30_uS": 2.222071519905955,
+      "row_weight": 1.0,
+      "fit_eligible": true,
+      "quality_flags": []
+    },
+    {
+      "row": 6,
+      "visit": 0,
+      "independent_WB_conversions": 10,
+      "C_mean": 17.6,
+      "F_mean": 43.7,
+      "T_mean": 1815.3,
+      "G31_minus_G30_uS": 3.4504464137210156,
+      "row_weight": 1.0,
+      "fit_eligible": true,
+      "quality_flags": []
+    },
+    {
+      "row": 2,
+      "visit": 0,
+      "independent_WB_conversions": 10,
+      "C_mean": 21.9,
+      "F_mean": 46.4,
+      "T_mean": 2242.6,
+      "G31_minus_G30_uS": 4.987927255569046,
+      "row_weight": 1.0,
+      "fit_eligible": true,
+      "quality_flags": []
+    },
+    {
+      "row": 0,
+      "visit": 0,
+      "independent_WB_conversions": 10,
+      "C_mean": 22.1,
+      "F_mean": 30,
+      "T_mean": 2279,
+      "G31_minus_G30_uS": 15.369300137068377,
+      "row_weight": 1.0,
+      "fit_eligible": true,
+      "quality_flags": []
+    },
+    {
+      "row": 4,
+      "visit": 0,
+      "independent_WB_conversions": 10,
+      "C_mean": 25.5,
+      "F_mean": 48.2,
+      "T_mean": 2600.8,
+      "G31_minus_G30_uS": 25.591849662598662,
+      "row_weight": 1.0,
+      "fit_eligible": true,
+      "quality_flags": []
+    },
+    {
+      "row": 9,
+      "visit": 0,
+      "independent_WB_conversions": 10,
+      "C_mean": 32.7,
+      "F_mean": 43.2,
+      "T_mean": 3325.8,
+      "G31_minus_G30_uS": 43.70527463850311,
+      "row_weight": 1.0,
+      "fit_eligible": true,
+      "quality_flags": []
+    },
+    {
+      "row": 13,
+      "visit": 1,
+      "independent_WB_conversions": 10,
+      "C_mean": 21,
+      "F_mean": 45.4,
+      "T_mean": 2153.6,
+      "G31_minus_G30_uS": 18.12414101194085,
+      "row_weight": 0.5,
+      "fit_eligible": true,
+      "quality_flags": []
+    }
+  ]
+}

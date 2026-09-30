@@ -1,0 +1,288 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-30",
+  "base_commit": "f37a137a23aee4f34d4f23ee89e54d7a76e35cfb",
+  "target_remote": "https://github.com/Samarthjainabout/Evaluation_Research_Boards-.git",
+  "target_branch": "samarth-jain",
+  "source_hashes": [
+    {
+      "archive_file": "data/failures.jsonl",
+      "source_run": "tdc_averaged_wrap_20260930_154600",
+      "source_file": "failures.jsonl",
+      "raw_sha256": "5d945b6d37d7ed0b581e53c4a059cbb0636c47bea05400073a327ced01fd6929"
+    },
+    {
+      "archive_file": "data/plan.json",
+      "source_run": "tdc_averaged_wrap_20260930_154600",
+      "source_file": "plan.json",
+      "raw_sha256": "c4ccf6814db4b059ea0bd6a717d727d45fba3bce4b074c442bbe0fee5fbff227"
+    },
+    {
+      "archive_file": "data/read_calibration_profile.json",
+      "source_run": "tdc_averaged_wrap_20260930_154600",
+      "source_file": "read_calibration_profile.json",
+      "raw_sha256": "18a36afbbb389d3ac57a1bd7de5cac509f04e27a0394e064dc18454fb886b5a9"
+    },
+    {
+      "archive_file": "data/report.json",
+      "source_run": "tdc_averaged_wrap_20260930_154600",
+      "source_file": "report.json",
+      "raw_sha256": "8ca5d81d9d3f83c8e371496ce9c628b662e0a62284b9f9658b748804bdcda839"
+    },
+    {
+      "archive_file": "data/scan_pairs.jsonl",
+      "source_run": "tdc_averaged_wrap_20260930_154600",
+      "source_file": "scan_pairs.jsonl",
+      "raw_sha256": "545907ae5deadc41dc45e2701c4f46e13b1af5a7a2d1d4e62c6ebb4d04d781fc"
+    },
+    {
+      "archive_file": "data/seed_plan.json",
+      "source_run": "tdc_averaging_r13_20260930_152600",
+      "source_file": "plan.json",
+      "raw_sha256": "f3443ce1c8a61c7f4f53eff0982cc5d76648c45ad7be7a2756e95f3fd760a107"
+    },
+    {
+      "archive_file": "data/seed_report.json",
+      "source_run": "tdc_averaging_r13_20260930_152600",
+      "source_file": "report.json",
+      "raw_sha256": "cf54939ad239a34ef02a2ab79a410009f187286ed55fcfa10e54d5b0d0f2afd8"
+    },
+    {
+      "archive_file": "data/seed_scan_pairs.jsonl",
+      "source_run": "tdc_averaging_r13_20260930_152600",
+      "source_file": "scan_pairs.jsonl",
+      "raw_sha256": "d6e64797270e96651352900ff0d5d4ea7995636193e5f663a715b97351f1d760"
+    },
+    {
+      "archive_file": "data/seed_tdc_raw.jsonl",
+      "source_run": "tdc_averaging_r13_20260930_152600",
+      "source_file": "tdc_raw.jsonl",
+      "raw_sha256": "a91b2acd67cb0b04be59d407a0e97a314220c10d9bd48254ec54fe845081dadc"
+    },
+    {
+      "archive_file": "data/tdc_raw.jsonl",
+      "source_run": "tdc_averaged_wrap_20260930_154600",
+      "source_file": "tdc_raw.jsonl",
+      "raw_sha256": "479170e61b9b1dabc05edbb07e4b3e3f3dedce4ec11ffb78e1340f5c35b87906"
+    }
+  ],
+  "files": [
+    {
+      "path": "api_v1/cell_api.py",
+      "sha256": "9d3454bce737e072b38288182b035c24b508f920f829e68d2dcc909d0d08388a",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 193612
+    },
+    {
+      "path": "api_v1/gui/server.py",
+      "sha256": "af39c73787fb3b6950d7e8ac18cdd329c7ea1a76f83d08d36a031999b021fc2d",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 55367
+    },
+    {
+      "path": "api_v1/gui/static/app.js",
+      "sha256": "ea2936ed537d4956e956792865de49138eb17cc63a839c3c3656054ab80b48a1",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 41670
+    },
+    {
+      "path": "api_v1/gui/static/index.html",
+      "sha256": "316dd32651930561a9afb4458f323ea1f38bdc0dafc4a58622b92566e9c1d503",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 5736
+    },
+    {
+      "path": "api_v1/gui/static/styles.css",
+      "sha256": "a2c0232ab2cff14516f79c7601f6567fec6ee98ab6f79755d37477a678aaefb1",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 8319
+    },
+    {
+      "path": "api_v1/prerequisites/caravel_wishbone/Makefile",
+      "sha256": "2f5e90f6b10ca738f23b5d97fbc1de4cfb2a1e1471897cbbce70db45e900de1c",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 749
+    },
+    {
+      "path": "api_v1/prerequisites/caravel_wishbone/gui_wb_mode.c",
+      "sha256": "f69c09010b468d645c1c198325cf6179ab97c5f36fe8341ad0670aef6bbc5bc1",
+      "hash_encoding": "raw bytes",
+      "canonical_bytes": 14973
+    },
+    {
+      "path": "api_v1/prerequisites/caravel_wishbone/gui_wb_mode.hex",
+      "sha256": "0998ad922f6a982a113c43b696e03f73651c2cb9ea6e475a06f1b24ac7c3abae",
+      "hash_encoding": "raw bytes",
+      "canonical_bytes": 24362
+    },
+    {
+      "path": "api_v1/prerequisites/fpga_zynq7020/bitstreams/caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_read_repair.bit",
+      "sha256": "378a707afff12d503dc81fa419cd7ad579ee67f1fe61875925c9579326da16b9",
+      "hash_encoding": "raw bytes",
+      "canonical_bytes": 4045686
+    },
+    {
+      "path": "api_v1/prerequisites/fpga_zynq7020/bitstreams/caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_read_repair.ltx",
+      "sha256": "45943f443fbe039b7790e6a5cc68af00f5bea5ee95ab6c67a87417eb1cc98809",
+      "hash_encoding": "raw bytes",
+      "canonical_bytes": 25211
+    },
+    {
+      "path": "api_v1/prerequisites/fpga_zynq7020/runtime_vio_daemon.tcl",
+      "sha256": "16cca7bf97386d7ed020f5439ec69cd7f2e3d4cae03c2276c8fa4b4efccfecb2",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 12617
+    },
+    {
+      "path": "api_v1/publication/analyze_existing_pair_calibration.py",
+      "sha256": "69f7541d5249b8ce16d821f9e325c9e5e2f522950129aeb76b41a522d164f525",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 7018
+    },
+    {
+      "path": "api_v1/publication/baseline_v1.json",
+      "sha256": "86f0db14e136febd1c57685eba2e6dc8d339f483f784191b01ef1dc208471731",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 3275
+    },
+    {
+      "path": "api_v1/publication/run_averaged_wrap_calibration.py",
+      "sha256": "130d8604ed1ffd4678560f5d674898726519389a8d2ee63dcd6d226a5043875a",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 7734
+    },
+    {
+      "path": "api_v1/publication/run_fine_count_calibration_20260928.py",
+      "sha256": "7fbb6337b86555ac606677386ede1f7d6709cd4fa91223aa48136987a240e635",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 11147
+    },
+    {
+      "path": "api_v1/publication/run_r0c30_cycle_tdc_calibration.py",
+      "sha256": "ba87bfd6b153d3662b5c37c7af905a65e4f15f75c8eccfb89009ff532dc678be",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 16867
+    },
+    {
+      "path": "api_v1/publication/run_tdc_averaging_check.py",
+      "sha256": "60f922e02adcd96ac113204e3c9f5f6f68cbc04e78b56f4e62a987a405468cc9",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 7021
+    },
+    {
+      "path": "api_v1/publication/summarize_scan_2mhz.py",
+      "sha256": "1e37e2ecc03fa7ce6cbfcbedbcbebc451e45dbe7aa0d3e8dbbeb41e4325f0ab5",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 2528
+    },
+    {
+      "path": "api_v1/publication/verify_baseline.py",
+      "sha256": "fa4d5a9de93b0cfe1c3c2496a7764b0d84850d7c90c37c24425092510890746e",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 6929
+    },
+    {
+      "path": "api_v1/scan_debug_cli.py",
+      "sha256": "6e07c52696d363898ed210ad77369e74d46d68e89f3ab536f46a95b7a2844982",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 22632
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/README.md",
+      "sha256": "dba0a8ac2f13d1a10ae95f74905660dfd7c3d27b9aed241c285ca28674cca0de",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 8652
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/data/failures.jsonl",
+      "sha256": "18af690c94248adda2a48915ecf7590a8e2d472654be7e984a48eff03caf531c",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 238
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/data/plan.json",
+      "sha256": "22f5d325727c79d398b9482421fa9ba70ef880b2a903e1251f4d388ccef3d867",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 750
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/data/read_calibration_profile.json",
+      "sha256": "648bd9dfddf964679857c22f087c014e84766335abdb3fc12dcc234cf7e413f4",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 1226
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/data/report.json",
+      "sha256": "34f68f64b0568a543f83964641140d46cf8ea0d3aaf1257d5c5833243dd1c483",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 509664
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/data/scan_pairs.jsonl",
+      "sha256": "83fee1657ba6fee1fb3704b8e627bedf28204ec250ffee4ea7d95cc0b27b636d",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 61940
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/data/seed_plan.json",
+      "sha256": "97a5ac52d75c1ae0bb2473102c5a1842ae1ef933f976bd8cf1d00c1ee7bad081",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 488
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/data/seed_report.json",
+      "sha256": "8416fa9f358b14e5f032837763cdfb93eed72e9c21459db9929e72c6ffd97391",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 96204
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/data/seed_scan_pairs.jsonl",
+      "sha256": "c6cabb9c4d03c51f4dde7c6d16a81461d8a68398bbaa3d343581b72519376843",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 8783
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/data/seed_tdc_raw.jsonl",
+      "sha256": "5b1b470ccc8f2760fb5a898ea16957e20030308f07cb7e782718efc99bc82231",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 47985
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/data/tdc_raw.jsonl",
+      "sha256": "3811fe982cc46391581586234295a44c71412d0f23e0309e81ef17bcfcae78d7",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 169837
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/fit_inputs.json",
+      "sha256": "22216beeb304c649d0b197e2e255bf87fd22403900a19ff68a833ac03bf41691",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 2320
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/validation.json",
+      "sha256": "e50ac123636c84b15092111b575194b65d5d8c5b1e4985b231451904fd51d7ba",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 2073
+    },
+    {
+      "path": "api_v1/tdc_averaged_wrap_fit_20260930/verify_archive.py",
+      "sha256": "ba868c07a67964669504d024ba3ae4d2f3f6f836b02237b60257165adf8e990f",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 2148
+    },
+    {
+      "path": "api_v1/tools/summarize_capture.py",
+      "sha256": "fbb0a20656849293a9f51368128b6dfe58e2167c0cba32649c28fb430b5ca976",
+      "hash_encoding": "LF-normalized UTF-8",
+      "canonical_bytes": 10389
+    }
+  ],
+  "remote_file_hash_check": {
+    "fpga_bit_and_ltx_match_local": true,
+    "caravel_c_and_hex_match_local": true,
+    "new_hardware_readback_performed": false,
+    "fpga_source_rebuild_equivalence_verified": false
+  },
+  "scope": "Current on-disk API/GUI and actual run data; shared firmware unchanged; no hardware settings changed for archival."
+}

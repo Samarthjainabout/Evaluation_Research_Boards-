@@ -23,6 +23,44 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def verify_bitstream_structure(path: Path) -> dict[str, object]:
+    """Reject truncated .bit files even if a saved hash matches them."""
+    data = path.read_bytes()
+    position = 0
+
+    def take(size: int) -> bytes:
+        nonlocal position
+        if position + size > len(data):
+            raise ValueError("Truncated bitstream header")
+        value = data[position:position + size]
+        position += size
+        return value
+
+    try:
+        magic_size = int.from_bytes(take(2), "big")
+        if take(magic_size) != bytes.fromhex("0ff00ff00ff00ff000"):
+            raise ValueError("Invalid .bit header magic")
+        if take(2) != b"\x00\x01":
+            raise ValueError("Invalid .bit header marker")
+        for tag in b"abcd":
+            if take(1) != bytes([tag]):
+                raise ValueError("Unexpected .bit header field")
+            take(int.from_bytes(take(2), "big"))
+        if take(1) != b"e":
+            raise ValueError("Missing .bit payload field")
+        declared = int.from_bytes(take(4), "big")
+        actual = len(data) - position
+        if declared != actual:
+            raise ValueError(f"Bitstream payload length mismatch: declared {declared}, actual {actual}")
+        payload = data[position:]
+        sync = payload.find(bytes.fromhex("aa995566"))
+        if sync < 0 or (len(payload) - sync) % 4:
+            raise ValueError("Missing sync word or misaligned configuration words")
+        return {"ok": True, "payload_bytes": actual, "file_bytes": len(data)}
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "file_bytes": len(data)}
+
+
 def verify_artifacts(baseline: dict[str, object]) -> list[dict[str, object]]:
     results: list[dict[str, object]] = []
     for artifact in baseline["artifacts"]:  # type: ignore[index]
@@ -30,12 +68,14 @@ def verify_artifacts(baseline: dict[str, object]) -> list[dict[str, object]]:
         path = ROOT / str(item["path"])
         expected = str(item["sha256"]).lower()
         actual = sha256(path) if path.is_file() else None
+        structure = verify_bitstream_structure(path) if path.is_file() and path.suffix == ".bit" else None
         results.append({
             "role": item["role"],
             "path": item["path"],
             "expected_sha256": expected,
             "actual_sha256": actual,
-            "ok": actual == expected,
+            "structure": structure,
+            "ok": actual == expected and (structure is None or structure["ok"]),
         })
     return results
 

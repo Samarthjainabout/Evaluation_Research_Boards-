@@ -1,0 +1,33 @@
+{
+  "row": 13,
+  "columns": [
+    30,
+    31
+  ],
+  "independent_wb_conversions": 20,
+  "scan_pair_repeats_before_and_after": 3,
+  "wb_invalid_retry_budget": 4,
+  "biases_V": {
+    "iref": 1,
+    "vcomp": 0.9,
+    "vbias": 1.6,
+    "bias_comp2": 0.6,
+    "dc_bias": 1.5
+  },
+  "scan_MHz": 2,
+  "wb_MHz": 10,
+  "scan_hold_us": 50,
+  "read_rails_V": [
+    0.5,
+    2.5
+  ],
+  "no_SET_RESET": true,
+  "target_sign": "G31-G30",
+  "averaging_sizes": [
+    1,
+    3,
+    5,
+    10,
+    20
+  ]
+}

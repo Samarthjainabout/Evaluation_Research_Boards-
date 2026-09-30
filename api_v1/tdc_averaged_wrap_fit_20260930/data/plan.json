@@ -1,0 +1,35 @@
+{
+  "rows_in_order": [
+    30,
+    6,
+    2,
+    24,
+    0,
+    4,
+    9,
+    13
+  ],
+  "seed": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_averaging_r13_20260930_152600\\report.json",
+  "wb_reads_per_checkpoint": 10,
+  "scan_pair_reads_before": 3,
+  "scan_pair_reads_after": 3,
+  "invalid_WB_retry_budget": 4,
+  "biases_V": {
+    "iref": 1,
+    "vcomp": 0.9,
+    "vbias": 1.6,
+    "bias_comp2": 0.6,
+    "dc_bias": 1.5
+  },
+  "scan_MHz": 2,
+  "wb_MHz": 10,
+  "read_rails_V": [
+    0.5,
+    2.5
+  ],
+  "scan_hold_us": 50,
+  "primary_equation": "G31-G30 = a + b * mean(100*C+99-F)",
+  "validation": "Leave entire row out, row-cluster bootstrap",
+  "no_programming": true,
+  "old_three_read_checkpoints_in_fit": false
+}

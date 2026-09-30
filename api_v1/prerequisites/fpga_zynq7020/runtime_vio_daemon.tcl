@@ -10,6 +10,7 @@ set request_file [file join $script_dir "runtime_vio_request.txt"]
 set invalid_response_file [file join $script_dir "runtime_vio_response.invalid.txt"]
 set heartbeat_file [file join $script_dir "runtime_vio_daemon.heartbeat"]
 set stop_file [file join $script_dir "runtime_vio_daemon.stop"]
+set reuse_once_file [file join $script_dir "runtime_vio_reuse_once.flag"]
 
 proc write_atomic {path contents} {
     set tmp "$path.[pid].tmp"
@@ -80,8 +81,18 @@ catch {refresh_hw_device $dev}
 # the current image re-runs the VDDIO-first sequence and establishes the safe
 # read defaults (Vcc_set=0.5 V, Vcc_wl_set=2.5 V) before accepting commands.
 set reused 0
-program_hw_devices $dev
-refresh_hw_device $dev
+if {[file exists $reuse_once_file]} {
+    # Recovery path: an independently verified XSDB load just completed.
+    # Consume the marker once and attach to that fresh image instead of
+    # issuing a redundant second PROGRAM operation, which some boards reject
+    # with End-of-startup LOW.
+    file delete -force $reuse_once_file
+    set reused 1
+    refresh_hw_device $dev
+} else {
+    program_hw_devices $dev
+    refresh_hw_device $dev
+}
 set vios [get_hw_vios -quiet -of_objects $dev]
 if {[llength $vios] != 1} {
     puts "ERROR: expected one runtime VIO core after programming, found [llength $vios]"
@@ -124,7 +135,43 @@ while {![file exists $stop_file]} {
         set handle [open $request_file r]
         set request [string trim [read $handle]]
         close $handle
-        if {[regexp {^([A-Za-z0-9_-]+)[ \t]+(0x)?([0-9A-Fa-f]{16})$} $request -> request_id ignored command_hex]} {
+        set request_fields [regexp -all -inline {\S+} $request]
+        set request_valid 0
+        set collect_uart 0
+        set expected_uart_tag 0
+        set collect_count 0
+        set collect_timeout_ms 0
+        if {[llength $request_fields] == 2} {
+            lassign $request_fields request_id command_hex
+            set request_valid [expr {
+                [regexp {^[A-Za-z0-9_-]+$} $request_id]
+                && [regexp -nocase {^(0x)?[0-9A-F]{16}$} $command_hex]
+            }]
+        } elseif {[llength $request_fields] == 6} {
+            lassign $request_fields request_id command_hex request_mode expected_tag_text collect_count_text collect_timeout_text
+            set request_valid [expr {
+                [regexp {^[A-Za-z0-9_-]+$} $request_id]
+                && [regexp -nocase {^(0x)?[0-9A-F]{16}$} $command_hex]
+                && [string equal -nocase $request_mode "COLLECT"]
+                && [regexp -nocase {^(0x)?[0-9A-F]{1,2}$} $expected_tag_text]
+                && [string is integer -strict $collect_count_text]
+                && [string is integer -strict $collect_timeout_text]
+            }]
+            if {$request_valid} {
+                set expected_tag_text [string map -nocase {0x ""} $expected_tag_text]
+                scan $expected_tag_text %x expected_uart_tag
+                set collect_count [expr {int($collect_count_text)}]
+                set collect_timeout_ms [expr {int($collect_timeout_text)}]
+                if {$collect_count < 1 || $collect_count > 32
+                    || $expected_uart_tag + $collect_count > 256
+                    || $collect_timeout_ms < 1000} {
+                    set request_valid 0
+                } else {
+                    set collect_uart 1
+                }
+            }
+        }
+        if {$request_valid} {
             if {$request_id ne $last_request_id} {
                 # A response path unique to this request prevents the Windows
                 # PowerShell poller from holding open a file that the daemon
@@ -155,6 +202,9 @@ while {![file exists $stop_file]} {
                     # Scan packets retain the verified 2 MHz physical timing.
                     # Allow 20 ms per packet for JTAG/host margin.
                     set command_timeout_ms [expr {10000 + ($packet_count * 20)}]
+                    if {$collect_uart && $collect_timeout_ms > $command_timeout_ms} {
+                        set command_timeout_ms $collect_timeout_ms
+                    }
 
                     set_property OUTPUT_VALUE $effective_hex $command_probe
                     commit_hw_vio $command_probe
@@ -162,6 +212,9 @@ while {![file exists $stop_file]} {
                     set deadline_ms [expr {[clock milliseconds] + $command_timeout_ms}]
                     set completed 0
                     set status_hex $before_hex
+                    set uart_started 0
+                    catch {array unset uart_collected}
+                    array set uart_collected {}
                     while {[clock milliseconds] < $deadline_ms} {
                         after 1
                         refresh_hw_vio $vio
@@ -169,7 +222,24 @@ while {![file exists $stop_file]} {
                         scan $status_hex %llx status_value
                         set counter [expr {($status_value >> 3) & 1}]
                         set busy [expr {$status_value & 1}]
-                        if {$counter != $before_counter && !$busy} {
+                        if {$collect_uart} {
+                            set uart_valid [expr {($status_value >> 63) & 1}]
+                            set uart_error [expr {($status_value >> 62) & 1}]
+                            set uart_tag [expr {($status_value >> 54) & 0xFF}]
+                            set uart_value [expr {($status_value >> 22) & 0xFFFFFFFF}]
+                            set uart_signature [expr {($status_value >> 19) & 7}]
+                            if {!$uart_started && $uart_signature == 3 && $uart_valid && !$uart_error
+                                && $uart_tag == $expected_uart_tag} {
+                                set uart_started 1
+                            }
+                            set uart_offset [expr {$uart_tag - $expected_uart_tag}]
+                            if {$uart_started && $uart_signature == 3 && $uart_valid && !$uart_error
+                                && $uart_offset >= 0 && $uart_offset < $collect_count} {
+                                set uart_collected($uart_offset) [format %08X $uart_value]
+                            }
+                        }
+                        if {$counter != $before_counter && !$busy
+                            && (!$collect_uart || [array size uart_collected] == $collect_count)} {
                             set completed 1
                             break
                         }
@@ -181,7 +251,15 @@ while {![file exists $stop_file]} {
 
                 set elapsed_ms [expr {[clock milliseconds] - $started_ms}]
                 if {$rc == 0} {
-                    write_atomic $response_file "$request_id OK command=$effective_hex status=$status_hex elapsed_ms=$elapsed_ms"
+                    set response "$request_id OK command=$effective_hex status=$status_hex elapsed_ms=$elapsed_ms"
+                    if {$collect_uart} {
+                        set uart_values {}
+                        for {set uart_index 0} {$uart_index < $collect_count} {incr uart_index} {
+                            lappend uart_values $uart_collected($uart_index)
+                        }
+                        append response " readbacks=[join $uart_values ,]"
+                    }
+                    write_atomic $response_file $response
                 } else {
                     set clean_message [string map [list "\n" " " "\r" " "] $message]
                     write_atomic $response_file "$request_id ERROR $clean_message"

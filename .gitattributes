@@ -1,0 +1,5 @@
+# Preserve exact deployment artifact bytes across Windows/Linux checkouts.
+api_v1/prerequisites/fpga_zynq7020/bitstreams/*v35_wb_read_repair.bit -text
+api_v1/prerequisites/fpga_zynq7020/bitstreams/*v35_wb_read_repair.ltx -text whitespace=cr-at-eol
+api_v1/prerequisites/caravel_wishbone/gui_wb_mode.hex -text whitespace=cr-at-eol
+api_v1/prerequisites/caravel_wishbone/gui_wb_mode.c text eol=lf

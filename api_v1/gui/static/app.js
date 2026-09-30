@@ -15,6 +15,13 @@ const HEATMAP_SCALE_MAX_UA = 300;
 const LOG_DISPLAY_FLOOR_US = 0.2;
 const DEFAULT_WB_READ_VALUE = "0x4002AA82";
 const DEFAULT_WB_WRITE_VALUE = "0x500888FF";
+const RAW_WB_OPERATIONS = new Set(["wb-read", "wb-write"]);
+const MEMORY_CONTROLLER_OPERATIONS = new Set([
+  "memory-controller-set-test",
+  "memory-controller-reset-test",
+  "memory-controller-set",
+  "memory-controller-reset",
+]);
 
 const els = {
   runSelect: document.getElementById("runSelect"),
@@ -50,6 +57,7 @@ const els = {
   commandBtn: document.getElementById("commandBtn"),
   resumeArrayBtn: document.getElementById("resumeArrayBtn"),
   killBtn: document.getElementById("killBtn"),
+  queueBtn: document.getElementById("queueBtn"),
   commandNote: document.getElementById("commandNote"),
 };
 
@@ -703,6 +711,7 @@ async function refresh() {
     state.commandsEnabled = Boolean(data.commandsEnabled);
     state.lastCommands = data.runningCommands || [];
     renderCommandState(data.runningCommands || []);
+    refreshHardwareQueue();
     renderMetrics(data.state);
     renderHeatmap(data.state);
     renderChart(data.state);
@@ -772,6 +781,39 @@ function renderCommandState(commands) {
   els.resumeArrayBtn.textContent = showArrayResume ? "Resume array" : `Resume ${state.sweepResume?.operation || "sweep"}`;
 }
 
+async function refreshHardwareQueue() {
+  if (!els.queueBtn) return;
+  if (!state.commandsEnabled) {
+    els.queueBtn.disabled = true;
+    els.queueBtn.textContent = "Queue unavailable";
+    els.queueBtn.className = "queue-btn queue-unknown";
+    return;
+  }
+  try {
+    const response = await fetch("/api/hardware-queue", { cache: "no-store" });
+    const data = await response.json();
+    els.queueBtn.disabled = false;
+    if (data.locked === false) {
+      els.queueBtn.textContent = "Queue clear";
+      els.queueBtn.title = "Hardware queue is free.";
+      els.queueBtn.className = "queue-btn queue-clear";
+    } else if (data.locked === true) {
+      els.queueBtn.textContent = "Queued — clear";
+      els.queueBtn.title = data.owner ? `Queue owner: ${data.owner}` : "Hardware queue is locked. Click to clear it.";
+      els.queueBtn.className = "queue-btn queue-locked";
+    } else {
+      els.queueBtn.textContent = "Queue unknown";
+      els.queueBtn.title = data.error || "Could not read hardware queue status.";
+      els.queueBtn.className = "queue-btn queue-unknown";
+    }
+  } catch (error) {
+    els.queueBtn.disabled = false;
+    els.queueBtn.textContent = "Queue unknown";
+    els.queueBtn.title = error.message;
+    els.queueBtn.className = "queue-btn queue-unknown";
+  }
+}
+
 async function sendCommand(payload, targetText, extraText = "") {
   if (!payload.dryRun) {
     const ok = window.confirm(
@@ -805,14 +847,14 @@ async function sendCommand(payload, targetText, extraText = "") {
 
 function syncOperationFields() {
   const operation = els.operationInput.value;
-  const wishbone = operation === "wb-read" || operation === "wb-write";
-  els.rowField.hidden = wishbone;
-  els.colField.hidden = wishbone;
-  els.rowInput.disabled = wishbone;
-  els.colInput.disabled = wishbone;
-  els.wbValueField.hidden = !wishbone;
-  els.wbValueInput.disabled = !wishbone;
-  if (wishbone) {
+  const rawWishbone = RAW_WB_OPERATIONS.has(operation);
+  els.rowField.hidden = rawWishbone;
+  els.colField.hidden = rawWishbone;
+  els.rowInput.disabled = rawWishbone;
+  els.colInput.disabled = rawWishbone;
+  els.wbValueField.hidden = !rawWishbone;
+  els.wbValueInput.disabled = !rawWishbone;
+  if (rawWishbone) {
     const nextDefault = operation === "wb-read" ? DEFAULT_WB_READ_VALUE : DEFAULT_WB_WRITE_VALUE;
     const staleDefault = operation === "wb-read" ? DEFAULT_WB_WRITE_VALUE : DEFAULT_WB_READ_VALUE;
     const current = els.wbValueInput.value.trim().toUpperCase();
@@ -849,6 +891,26 @@ els.killBtn.addEventListener("click", async () => {
   });
   const data = await response.json();
   els.commandNote.textContent = data.error || data.message || "Kill signal sent";
+  setTimeout(refresh, 500);
+});
+els.queueBtn.addEventListener("click", async () => {
+  const running = (state.lastCommands || []).find((command) => command.running);
+  const runningText = running
+    ? `\n\nThis will first stop ${running.external ? "external " : ""}${running.operation || "API"} PID ${running.pid}.`
+    : "";
+  const ok = window.confirm(
+    `Release the hardware queue lock on the Saleae/Ubuntu bench?${runningText}\n\nUse this after a crashed/stuck run or when the queue button is not green.`
+  );
+  if (!ok) return;
+  els.queueBtn.disabled = true;
+  els.queueBtn.textContent = "Releasing...";
+  const response = await fetch("/api/hardware-queue/clear", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: running?.id || state.runningCommandId || "" }),
+  });
+  const data = await response.json();
+  els.commandNote.textContent = data.error || data.message || "Queue release requested";
   setTimeout(refresh, 500);
 });
 els.operationInput.addEventListener("change", () => {
@@ -903,7 +965,7 @@ els.commandForm.addEventListener("submit", async (event) => {
     zynqPassword: els.zynqPasswordInput.value,
     dryRun: els.dryRunInput.checked,
   };
-  if (["wb-read", "wb-write"].includes(payload.operation)) payload.wbValue = els.wbValueInput.value.trim();
+  if (RAW_WB_OPERATIONS.has(payload.operation)) payload.wbValue = els.wbValueInput.value.trim();
   const continueSelectedSweep = state.manualRun
     && ["set", "reset"].includes(payload.operation)
     && state.sweepResume?.operation === payload.operation
@@ -917,10 +979,12 @@ els.commandForm.addEventListener("submit", async (event) => {
     ? `WB read command ${payload.wbValue || DEFAULT_WB_READ_VALUE} at 0x30000004`
     : payload.operation === "wb-write"
     ? `0x30000004 with ${payload.wbValue || DEFAULT_WB_WRITE_VALUE}`
+    : MEMORY_CONTROLLER_OPERATIONS.has(payload.operation)
+    ? `${payload.operation.replaceAll("-", " ")} at row ${payload.row}, col ${payload.col}`
     : payload.operation === "burst-read"
     ? "the full 32x32 array in one burst"
     : payload.operation === "read-array" ? `the array starting at column ${payload.col}` : `row ${payload.row}, col ${payload.col}`;
-  const extra = payload.operation === "wb-read" || payload.operation === "wb-write"
+  const extra = RAW_WB_OPERATIONS.has(payload.operation) || MEMORY_CONTROLLER_OPERATIONS.has(payload.operation)
     ? "\n\nRequires Caravel GPIO6/UART TX wired to FPGA J10-10 and RESET wired from FPGA J10-3 to Caravel. The permanent Caravel firmware accepts the operation and 32-bit packet at runtime, so normal WB requests do not rebuild or reflash it. DL carries the checked pulse-width startup command and returns to high-impedance before Wishbone access; TM and DR stay high-impedance. The external 2 MHz clock and all existing DAC/PLL values are preserved. If the permanent image is missing, the API installs it once and retries."
     : payload.operation === "burst-read"
     ? "\n\nThis uses one FPGA full-array stream and one reduced-resolution Saleae capture. FPGA reset/scan/hold timing and the ScanInDR-rise-through-TM-fall measurement window match single-cell read timing."

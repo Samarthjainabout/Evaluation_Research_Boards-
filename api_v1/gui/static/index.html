@@ -70,6 +70,10 @@
                 <option value="cycle">Cycle</option>
                 <option value="wb-read">WB read</option>
                 <option value="wb-write">WB write</option>
+                <option value="memory-controller-set-test">Memory Controller Set Test</option>
+                <option value="memory-controller-reset-test">Memory Controller Reset Test</option>
+                <option value="memory-controller-set">Memory Controller Set</option>
+                <option value="memory-controller-reset">Memory Controller Reset</option>
               </select>
             </label>
             <label id="rowField">Row <input id="rowInput" type="number" min="0" max="31" value="0"></label>
@@ -85,6 +89,7 @@
               <button id="commandBtn" type="submit">Start</button>
               <button id="resumeArrayBtn" class="resume-btn" type="button" disabled>Resume array</button>
               <button id="killBtn" class="kill-btn" type="button" disabled>Kill</button>
+              <button id="queueBtn" class="queue-btn queue-clear" type="button">Queue clear</button>
             </div>
             <p id="commandNote">Start server with --allow-commands to enable.</p>
           </form>
@@ -111,6 +116,6 @@
         <canvas id="chart" width="1200" height="220" aria-label="Conductance trend chart"></canvas>
       </section>
     </main>
-    <script src="/app.js?v=compact-pulse-spacing-20260903"></script>
+    <script src="/app.js?v=queue-release-memory-controller-20260930"></script>
   </body>
 </html>

@@ -33,6 +33,7 @@ FPGA_RUNTIME_PROBES = "caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_
 DEFAULT_WB_ADDRESS = 0x30000004
 DEFAULT_WB_READ_VALUE = 0x4002AA82
 DEFAULT_WB_WRITE_VALUE = 0x500888FF
+DEFAULT_MC_PWM = 0xFF
 WB_BIAS_SKEWS: dict[str, dict[str, float | int]] = {
     "iref": {"selector": 0, "dac": 9, "span_v": 5.0, "nominal_v": 1.0},
     "vcomp": {"selector": 1, "dac": 10, "span_v": 10.0, "nominal_v": 0.9},
@@ -44,9 +45,10 @@ WB_BIAS_SKEWS: dict[str, dict[str, float | int]] = {
 WINDOWS_REMOTE_COMMAND_LIMIT = 8000
 
 # Five-bit programming projection from set_reset_vcc_wl_projection_0_to_31.xlsx.
-# Set keeps Vcc_set fixed. Reset uses an outer Vcc_set sweep; the complete
-# DAC3/Vcc_wl_set projection runs inside each Vcc_set value.
 SET_PROGRAM_VCC_SET_V = 2.3
+SET_PROGRAM_VCC_SET_SWEEP_V = (
+    2.3, 2.4, 2.5,
+)
 SET_PROGRAM_VCC_WL_V = (
     0.44, 0.50, 0.56, 0.63, 0.69, 0.75, 0.81, 0.87,
     0.94, 1.00, 1.06, 1.12, 1.19, 1.25, 1.31, 1.37,
@@ -110,6 +112,34 @@ def decode_wb_return(value: int) -> dict[str, int]:
         "coarse_cnt": (value >> 8) & 0x3F,
         "fine_cnt": value & 0xFF,
     }
+
+
+def memory_controller_packet(
+    operation: Literal["read", "set", "reset"],
+    row: int,
+    col: int,
+    *,
+    flags: int = 0x2,
+    pwm: int = DEFAULT_MC_PWM,
+) -> int:
+    """Encode the documented memory-controller command packet."""
+
+    CellAddress(row, col).validate()
+    mode_by_operation = {"reset": 0b00, "read": 0b01, "set": 0b11}
+    if operation not in mode_by_operation:
+        raise ValueError(f"memory-controller operation must be read, set, or reset, got {operation!r}")
+    if not 0 <= flags <= 0xF:
+        raise ValueError("memory-controller flags must fit 4 bits")
+    if not 0 <= pwm <= 0xFF:
+        raise ValueError("memory-controller PWM must fit 8 bits")
+    return (
+        (mode_by_operation[operation] << 30)
+        | (row << 25)
+        | (col << 20)
+        | (flags << 16)
+        | (0xAA << 8)
+        | pwm
+    )
 
 
 class InvalidReadFeedbackError(RuntimeError):
@@ -188,9 +218,9 @@ class ScanDebugConfig:
     read_rails: RailVoltages = field(default_factory=lambda: RailVoltages(0.5, 2.5))
     set_sweep: SweepConfig = field(
         default_factory=lambda: SweepConfig.from_ranges(
-            vcc_set_v=(SET_PROGRAM_VCC_SET_V,),
+            vcc_set_v=SET_PROGRAM_VCC_SET_SWEEP_V,
             vcc_wl_set_v=SET_PROGRAM_VCC_WL_V,
-            threshold_uA=70.0,
+            threshold_uA=35.0,
             direction="above",
         )
     )
@@ -245,6 +275,10 @@ class ScanDebugConfig:
     # is otherwise used to choose between the two base tags.
     wishbone_skip_passive_snapshot: bool = False
     wishbone_wait_nonzero: bool = False
+    # Keep one Vivado/VIO session alive and collect the complete tagged UART
+    # sequence inside it.  This is opt-in because publication Step 3.2 is the
+    # first workflow that needs thousands of otherwise identical WB reads.
+    wishbone_persistent_uart: bool = False
     hardware_queue_enabled: bool = True
     hardware_queue_host: str | None = None
     hardware_queue_dir: str = "/tmp/scan_debug_hardware_queue.lock"
@@ -269,6 +303,10 @@ class ScanDebugConfig:
     burst_initial_delay_cycles: int = 1_000_000
     burst_repeat_after_done_cycles: int = 1
     burst_capture_strategy: Literal["single", "per-cell"] = "single"
+    # Optional subset used by sparse characterization runs.  When populated,
+    # burst validation requires these rows rather than recapturing a complete
+    # 32-row column because an unrelated packet decoded incorrectly.
+    burst_required_rows: tuple[int, ...] = ()
     burst_post_dr_tm_hold_cycles: int = 2_400
     # Match the single-cell summarizer: average from ScanInDR rise through TM
     # fall without trimming clocks from the end of the active read window.
@@ -841,6 +879,9 @@ class ScanDebugCellAPI:
             best_valid_count = -1
             best_validation_error = ""
             failures: list[str] = []
+            sparse_captures: list[tuple[Path, str]] = []
+            sparse_required_packets: set[int] = set()
+            sparse_decoded_packets: set[int] = set()
             for attempt in range(1, attempts + 1):
                 attempt_note = f" attempt {attempt}" if attempts > 1 else ""
                 strategy = "single-capture" if self.config.burst_capture_strategy == "single" else "per-cell"
@@ -867,6 +908,18 @@ class ScanDebugCellAPI:
                 self._append_progress("read-array", f"Column {col}: checking capture", cells=len(all_reads), total=total)
                 validation_error = self._validate_burst_manifest(local_output_dir, column_total)
                 valid_count = self._count_valid_burst_packets(local_output_dir)
+                if self.config.burst_required_rows:
+                    sparse_captures.append((local_output_dir, remote_output_dir))
+                    expected_packets = self._expected_burst_packets(local_output_dir)
+                    sparse_required_packets.update(
+                        packet
+                        for packet in expected_packets
+                        if (cell := cell_from_packet(packet)) is not None
+                        and cell.row in self.config.burst_required_rows
+                    )
+                    sparse_decoded_packets.update(self._valid_burst_packet_set(local_output_dir))
+                    if sparse_required_packets and sparse_required_packets <= sparse_decoded_packets:
+                        validation_error = ""
                 if valid_count > best_valid_count:
                     best_valid_count = valid_count
                     best_local_output_dir = local_output_dir
@@ -904,7 +957,22 @@ class ScanDebugCellAPI:
             if local_output_dir is None:
                 raise RuntimeError(f"Column {col} capture did not produce a local output directory")
             self._append_progress("read-array", f"Column {col}: decoding reads", cells=len(all_reads), total=total)
-            reads = self._append_burst_manifest(local_output_dir, remote_output_dir, bitstream)
+            if len(sparse_captures) > 1 and sparse_required_packets <= sparse_decoded_packets:
+                merged_reads: dict[tuple[int, int], dict[str, object]] = {}
+                for sparse_local, sparse_remote in sparse_captures:
+                    for item in self._append_burst_manifest(sparse_local, sparse_remote, bitstream):
+                        cell_data = item["cell"]
+                        key = (int(cell_data["row"]), int(cell_data["col"]))
+                        merged_reads.setdefault(key, item)
+                reads = list(merged_reads.values())
+                self._append_progress(
+                    "read-array",
+                    f"Column {col}: merged {len(sparse_captures)} sparse captures for required rows",
+                    cells=len(reads),
+                    total=total,
+                )
+            else:
+                reads = self._append_burst_manifest(local_output_dir, remote_output_dir, bitstream)
             all_reads.extend(reads)
             self._append_progress("read-array", f"Column {col}: decoded", cells=len(all_reads), total=total)
         summary = {
@@ -1085,6 +1153,60 @@ class ScanDebugCellAPI:
             return result
 
         self._ensure_runtime_bitstream()
+        if self.config.wishbone_persistent_uart and operation == "read":
+            uart_tag = 0x80
+            payload = self._runtime_wb_command_payload(
+                operation,
+                write_value,
+                uart_tag,
+                bias_skew=skew_name,
+                bias_voltage_v=skew_voltage,
+            )
+            result["runtime_command"] = payload
+            result["uart_tag"] = f"0x{uart_tag:02X}"
+            result["passive_uart_snapshot_skipped"] = True
+            self._append_progress(
+                operation_name,
+                "Sending runtime WB command and collecting 15 UART frames in the persistent VIO session",
+                uart_tag=f"0x{uart_tag:02X}",
+            )
+            readback_capture = self._program_runtime_payload_and_collect_uart(
+                payload,
+                expected_base_tag=uart_tag,
+                count=15,
+                timeout_seconds=max(1.0, self.config.wishbone_uart_timeout_seconds),
+            )
+            readback_values = list(readback_capture["values"])
+            selected_value = next((item for item in readback_values if item != 0), readback_values[-1])
+            uart = {
+                "tag": uart_tag,
+                "value": selected_value,
+                "log": readback_capture["log"],
+                "nonzero_wait_timed_out": not any(readback_values),
+            }
+            result["readbacks"] = [f"0x{item:08X}" for item in readback_values]
+            result["readbacks_collected"] = len(readback_values)
+            result["caravel_firmware_reflashed"] = False
+            result["fpga_reset_applied"] = True
+            result["dac_profile_applied"] = True
+            profile["updated"] = True
+            uart_log = self.config.run_dir / "wishbone_uart.log"
+            uart_log.write_text(str(uart["log"]))
+            result.update({
+                "ok": True,
+                "firmware": f"{self.config.wishbone_remote_dir}/gui_wb_mode.hex",
+                "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+                "uart_tag": f"0x{uart_tag:02X}",
+                "return_value": f"0x{selected_value:08X}",
+                "nonzero": bool(selected_value),
+                "nonzero_wait_timed_out": not any(readback_values),
+                "uart": f"FPGA/VIO tag=0x{uart_tag:02X} value=0x{selected_value:08X}",
+                "decoded_return": decode_wb_return(selected_value),
+            })
+            self._append_jsonl("wishbone_access.jsonl", result)
+            self._append_progress(operation_name, "Wishbone access complete", value=result["return_value"])
+            return result
+
         self._stop_runtime_vio_daemon()
         if self.config.wishbone_skip_passive_snapshot and operation == "read":
             self._append_progress(
@@ -1201,6 +1323,75 @@ class ScanDebugCellAPI:
             result["decoded_return"] = decode_wb_return(int(uart["value"]))
         self._append_jsonl("wishbone_access.jsonl", result)
         self._append_progress(operation_name, "Wishbone access complete", value=result["return_value"])
+        return result
+
+    def memory_controller_access(
+        self,
+        operation: Literal["read", "set", "reset"],
+        row: int,
+        col: int,
+        *,
+        duplicate_command: bool = True,
+    ) -> dict[str, object]:
+        """Run the embedded memory controller through the WB runtime path."""
+
+        command_value = memory_controller_packet(operation, row, col)
+        operation_name = f"memory-controller-{operation}"
+        result: dict[str, object] = {
+            "operation": operation_name,
+            "cell": asdict(CellAddress(row, col)),
+            "address": f"0x{DEFAULT_WB_ADDRESS:08X}",
+            "value": f"0x{command_value:08X}",
+            "command_value": f"0x{command_value:08X}",
+            "duplicate_command": duplicate_command,
+            "readback_attempts": 15,
+            "clock_mode": "10 MHz WB",
+            "fpga_uart_capture": "passive-vio",
+            "dry_run": self.config.dry_run,
+            "ok": False,
+        }
+        self._append_progress(
+            operation_name,
+            "Sending memory-controller WB command and collecting automatic TDC return",
+            row=row,
+            col=col,
+            value=result["value"],
+            duplicate_command=duplicate_command,
+        )
+        if self.config.dry_run:
+            result["ok"] = True
+            self._append_jsonl("wishbone_access.jsonl", result)
+            return result
+
+        self._ensure_runtime_bitstream()
+        uart_tag = 0x80
+        payload = self._runtime_wb_command_payload("read", command_value, uart_tag)
+        result["runtime_command"] = payload
+        result["uart_tag"] = f"0x{uart_tag:02X}"
+        sends = 2 if duplicate_command else 1
+        for _ in range(sends):
+            self._program_runtime_payload_once(payload)
+        readback_capture = self._read_runtime_uart_readbacks(
+            expected_base_tag=uart_tag,
+            count=15,
+            timeout_seconds=max(1.0, self.config.wishbone_uart_timeout_seconds),
+        )
+        readbacks = [int(value) for value in readback_capture.get("values", [])]
+        selected_value = next((value for value in readbacks if value != 0), 0)
+        selected_matching = [decode_wb_return(value) | {"raw": f"0x{value:08X}"} for value in readbacks if value != 0]
+        result.update({
+            "readbacks": [f"0x{value:08X}" for value in readbacks],
+            "readbacks_collected": len(readbacks),
+            "return_value": f"0x{selected_value:08X}",
+            "nonzero": bool(selected_value),
+            "uart": f"FPGA/VIO tag=0x{uart_tag:02X} value=0x{selected_value:08X}",
+            "decoded_return": decode_wb_return(selected_value),
+            "matching_frames": selected_matching,
+            "selected_matching": selected_matching[0] if selected_matching else None,
+            "ok": True,
+        })
+        self._append_jsonl("wishbone_access.jsonl", result)
+        self._append_progress(operation_name, "Memory-controller access complete", value=result["return_value"])
         return result
 
     def _ramp_until(self, cell: CellAddress, operation: Operation, sweep: SweepConfig) -> dict[str, object]:
@@ -1335,6 +1526,7 @@ class ScanDebugCellAPI:
                         "persistent fpga runtime command timed out",
                         "fpga runtime command did not complete within",
                         "capture summary failed",
+                        "capture/program failed",
                         "samples=0",
                     )
                 )
@@ -2228,12 +2420,27 @@ exit
                 invalid_decodes.append(decoded_text)
                 continue
             decoded_packets.append(decoded_packet)
-        if invalid_decodes:
+        required_rows = set(self.config.burst_required_rows)
+        if invalid_decodes and not required_rows:
             sample = ", ".join(invalid_decodes[:4])
             return f"burst manifest has invalid decoded packets: {sample}"
 
         expected_set = set(expected_packets)
         decoded_set = set(decoded_packets)
+        if required_rows:
+            required_packets = {
+                packet
+                for packet in expected_set
+                if (cell := cell_from_packet(packet)) is not None and cell.row in required_rows
+            }
+            missing_required = sorted(required_packets - decoded_set)
+            if missing_required:
+                return (
+                    "burst manifest missing required decoded packets: "
+                    + ", ".join(f"0x{packet:04x}" for packet in missing_required)
+                )
+            return ""
+
         missing = sorted(expected_set - decoded_set)
         unexpected = sorted(decoded_set - expected_set)
         duplicates = sorted(packet for packet in decoded_set if decoded_packets.count(packet) > 1)
@@ -2249,9 +2456,13 @@ exit
         return ""
 
     def _count_valid_burst_packets(self, local_output_dir: Path) -> int:
+        return len(self._valid_burst_packet_set(local_output_dir))
+
+    @staticmethod
+    def _expected_burst_packets(local_output_dir: Path) -> set[int]:
         burst_manifest = local_output_dir / "manifest.csv"
         if not burst_manifest.exists():
-            return 0
+            return set()
         with burst_manifest.open(newline="") as handle:
             rows = list(csv.DictReader(handle))
         expected_packets: set[int] = set()
@@ -2260,6 +2471,15 @@ exit
                 expected_packets.add(int(str(row["packet"]), 16))
             except (KeyError, TypeError, ValueError):
                 continue
+        return expected_packets
+
+    def _valid_burst_packet_set(self, local_output_dir: Path) -> set[int]:
+        burst_manifest = local_output_dir / "manifest.csv"
+        if not burst_manifest.exists():
+            return set()
+        with burst_manifest.open(newline="") as handle:
+            rows = list(csv.DictReader(handle))
+        expected_packets = self._expected_burst_packets(local_output_dir)
         decoded_packets: set[int] = set()
         for row in rows:
             decoded_text = str(row.get("decoded_packet", "")).strip()
@@ -2271,7 +2491,7 @@ exit
                 continue
             if decoded_packet in expected_packets and cell_from_packet(decoded_packet) is not None:
                 decoded_packets.add(decoded_packet)
-        return len(decoded_packets)
+        return decoded_packets
 
     def _capture_remote(self, packet: int, rails: RailVoltages, bitstream: str, index: int, kind: str) -> str:
         env = {
@@ -3185,6 +3405,84 @@ PY
             self._runtime_daemon_ready = False
             raise RuntimeError(reply or f"persistent FPGA runtime command {request_id} timed out")
         return 0
+
+    def _program_runtime_payload_and_collect_uart(
+        self,
+        payload: str,
+        *,
+        expected_base_tag: int,
+        count: int,
+        timeout_seconds: float,
+    ) -> dict[str, object]:
+        """Issue one WB command and collect its UART frames in one VIO session."""
+
+        if not 0 <= expected_base_tag <= 0xFF or expected_base_tag + count > 256:
+            raise ValueError("invalid UART tag range")
+        if not 1 <= count <= 32:
+            raise ValueError("UART collection count must be within 1..32")
+
+        last_error: RuntimeError | None = None
+        for attempt in range(3):
+            try:
+                self._ensure_runtime_vio_daemon()
+                request_id = uuid.uuid4().hex
+                wait_ms = max(1000, round(timeout_seconds * 1000))
+                response_file = f"runtime_vio_response.{request_id}.txt"
+                temp_file = f"runtime_vio_request.{request_id}.tmp"
+                request = (
+                    f"{request_id} {payload} COLLECT 0x{expected_base_tag:02X} "
+                    f"{count} {wait_ms}"
+                )
+                remote_wait_seconds = max(5, round(timeout_seconds + 10.0))
+                # Submit, wait, read, and remove the response over one SSH
+                # connection.  Reopening SSH for every 100 ms poll added
+                # several seconds to every cell in a full-array WB run.
+                remote_command = (
+                    f"$request={self._powershell_literal(request)}; "
+                    f"$temp={self._powershell_literal(temp_file)}; "
+                    f"$response={self._powershell_literal(response_file)}; "
+                    "Set-Content -LiteralPath $temp -Value $request -NoNewline -Encoding Ascii; "
+                    "Move-Item -LiteralPath $temp -Destination 'runtime_vio_request.txt' -Force; "
+                    f"$deadline=(Get-Date).AddSeconds({remote_wait_seconds}); "
+                    "while ((Get-Date) -lt $deadline -and -not (Test-Path -LiteralPath $response)) "
+                    "{ Start-Sleep -Milliseconds 100 }; "
+                    "if (Test-Path -LiteralPath $response) { "
+                    "$reply=Get-Content -LiteralPath $response -Raw; "
+                    "Remove-Item -LiteralPath $response -Force; "
+                    "Write-Output $reply; exit 0 }; exit 3"
+                )
+                response = self._run_zynq_powershell(
+                    remote_command,
+                    timeout_s=remote_wait_seconds + 20,
+                )
+                reply = (response.stdout or "").strip()
+                if response.returncode != 0:
+                    raise RuntimeError(reply or f"persistent WB/UART command {request_id} timed out")
+
+                if f"{request_id} OK " not in reply:
+                    raise RuntimeError(reply or f"persistent WB/UART command {request_id} timed out")
+                match = re.search(r"\breadbacks=([0-9A-Fa-f,]+)", reply)
+                if not match:
+                    raise RuntimeError(f"persistent WB/UART response omitted readbacks: {reply}")
+                values = [int(item, 16) for item in match.group(1).split(",")]
+                if len(values) != count:
+                    raise RuntimeError(
+                        f"persistent WB/UART response contained {len(values)} of {count} readbacks"
+                    )
+                return {"values": values, "log": reply, "attempt": attempt + 1}
+            except RuntimeError as exc:
+                last_error = exc
+                if attempt == 0:
+                    # A single UART tag can be missed by a JTAG refresh even
+                    # though the daemon and hardware are healthy. Retry the
+                    # read-only WB transaction in the same session first.
+                    continue
+                self._runtime_daemon_ready = False
+                if attempt == 1:
+                    self._stop_runtime_vio_daemon()
+                    continue
+                raise
+        raise last_error or RuntimeError("persistent WB/UART command failed")
 
     def _stop_runtime_vio_daemon(self) -> None:
         self._runtime_daemon_ready = False

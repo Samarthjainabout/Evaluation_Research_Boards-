@@ -26,18 +26,94 @@ ROOT = Path(__file__).resolve().parents[2]
 RUNS_DIR = ROOT / "api_v1" / "runs"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 READ_CONDUCTANCE_VOLTAGE_V = 0.5
+HARDWARE_QUEUE_HOST = os.environ.get("SCAN_DEBUG_HARDWARE_QUEUE_HOST", "ubuntu-24-04@100.98.132.51")
+HARDWARE_QUEUE_DIR = os.environ.get("SCAN_DEBUG_HARDWARE_QUEUE_DIR", "/tmp/scan_debug_hardware_queue.lock")
 
 
 def _conductance_uS(current_uA: Any) -> float | None:
     value = _float_or_none(current_uA)
     return value / READ_CONDUCTANCE_VOLTAGE_V if value is not None else None
+
+
+def _remote_queue_command(remote_script: str, *, timeout_s: int = 8) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "ssh",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=5",
+            HARDWARE_QUEUE_HOST,
+            remote_script,
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout_s,
+    )
+
+
+def _hardware_queue_status() -> dict[str, Any]:
+    queue_dir = shlex.quote(HARDWARE_QUEUE_DIR)
+    script = (
+        f"lock_dir={queue_dir}; "
+        'if [ -d "$lock_dir" ]; then '
+        'owner=$(cat "$lock_dir/owner" 2>/dev/null || true); '
+        'token=$(cat "$lock_dir/token" 2>/dev/null || true); '
+        'started=$(cat "$lock_dir/started" 2>/dev/null || true); '
+        'printf "%s\\n%s\\n%s\\n" "$owner" "$token" "$started"; '
+        "else exit 2; fi"
+    )
+    try:
+        proc = _remote_queue_command(script)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"available": False, "locked": None, "state": "unknown", "error": str(exc)}
+    if proc.returncode == 2:
+        return {"available": True, "locked": False, "state": "clear", "host": HARDWARE_QUEUE_HOST}
+    if proc.returncode != 0:
+        error = (proc.stderr or proc.stdout or "").strip()
+        return {"available": False, "locked": None, "state": "unknown", "error": error}
+    lines = proc.stdout.splitlines()
+    return {
+        "available": True,
+        "locked": True,
+        "state": "locked",
+        "host": HARDWARE_QUEUE_HOST,
+        "owner": " ".join((lines[0] if len(lines) > 0 else "").split())[:240],
+        "token": (lines[1] if len(lines) > 1 else "").strip()[:64],
+        "started": (lines[2] if len(lines) > 2 else "").strip()[:32],
+    }
+
+
+def _clear_hardware_queue_lock() -> dict[str, Any]:
+    # This intentionally targets only the known bench queue lock.  It is the
+    # same path used by ScanDebugCellAPI.hardware_queue; no user-provided path
+    # is accepted here.
+    if HARDWARE_QUEUE_DIR != "/tmp/scan_debug_hardware_queue.lock":
+        return {"ok": False, "error": f"Refusing to clear unexpected queue path {HARDWARE_QUEUE_DIR!r}"}
+    queue_dir = shlex.quote(HARDWARE_QUEUE_DIR)
+    script = (
+        f"lock_dir={queue_dir}; "
+        'if [ "$lock_dir" != "/tmp/scan_debug_hardware_queue.lock" ]; then exit 64; fi; '
+        'if [ -d "$lock_dir" ]; then rm -rf -- "$lock_dir"; echo cleared; '
+        "else echo already-clear; fi"
+    )
+    try:
+        proc = _remote_queue_command(script, timeout_s=12)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "error": str(exc)}
+    if proc.returncode != 0:
+        return {"ok": False, "error": (proc.stderr or proc.stdout or f"exit {proc.returncode}").strip()}
+    return {"ok": True, "message": (proc.stdout or "cleared").strip(), "status": _hardware_queue_status()}
 GRID_SIZE = 32
 STATE_CACHE_SECONDS = 2.0
 SCAN_DEBUG_OPERATIONS = frozenset({"read", "set", "reset", "cycle", "read-array", "burst-read"})
-WISHBONE_OPERATIONS = frozenset({"wb-read", "wb-write"})
+WISHBONE_OPERATIONS = frozenset({
+    "wb-read", "wb-write",
+    "memory-controller-set-test", "memory-controller-reset-test",
+    "memory-controller-set", "memory-controller-reset",
+})
 API_CAPABILITIES = {
     "scan-debug": tuple(sorted(SCAN_DEBUG_OPERATIONS)),
-    "wishbone": ("read", "write"),
+    "wishbone": tuple(sorted(WISHBONE_OPERATIONS)),
 }
 
 _manifest_cache_lock = threading.RLock()
@@ -71,7 +147,7 @@ except Exception:
         if not 0 <= parsed <= 0xFFFFFFFF:
             raise ValueError(f"{label} must be between 0x00000000 and 0xFFFFFFFF")
         return parsed
-    DEFAULT_THRESHOLDS_UA = {"set": 70.0, "reset": 5.0}
+    DEFAULT_THRESHOLDS_UA = {"set": 35.0, "reset": 5.0}
     DEFAULT_SWEEP_PULSE_COUNTS = {"set": 112, "reset": 40}
     WB_BIAS_SKEWS = {
         "iref": {}, "vcomp": {}, "bias_comp2": {}, "vbias": {}, "dc_bias": {},
@@ -110,6 +186,10 @@ def _normalize_api_operation(interface_mode: Any, operation: Any) -> tuple[str, 
             "write": "wb-write",
             "wb-read": "wb-read",
             "wb-write": "wb-write",
+            "memory-controller-set-test": "memory-controller-set-test",
+            "memory-controller-reset-test": "memory-controller-reset-test",
+            "memory-controller-set": "memory-controller-set",
+            "memory-controller-reset": "memory-controller-reset",
         }.get(requested_operation)
         if wishbone_operation is None:
             raise ValueError(
@@ -811,6 +891,9 @@ class GuiHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/runs":
             self._send_json({"runs": _run_choices(self.config.runs_dir)})
             return
+        if parsed.path == "/api/hardware-queue":
+            self._send_json(_hardware_queue_status())
+            return
         if parsed.path == "/api/state":
             query = parse_qs(parsed.query)
             run_name = query.get("run", [""])[0]
@@ -851,6 +934,9 @@ class GuiHandler(SimpleHTTPRequestHandler):
         parsed_path = urlparse(self.path).path
         if parsed_path == "/api/command/kill":
             self._kill_command()
+            return
+        if parsed_path == "/api/hardware-queue/clear":
+            self._clear_hardware_queue()
             return
         if parsed_path != "/api/command":
             self.send_error(HTTPStatus.NOT_FOUND)
@@ -1132,6 +1218,47 @@ class GuiHandler(SimpleHTTPRequestHandler):
                 self._send_json({"ok": True, "id": command_id, "message": f"Command process tree {pid} terminated."})
                 return
         self._send_json({"error": "No matching GUI/API command is running."}, HTTPStatus.NOT_FOUND)
+
+    def _clear_hardware_queue(self) -> None:
+        if not self.config.allow_commands:
+            self._send_json({"error": "Commands are disabled. Start with --allow-commands to release hardware."}, HTTPStatus.FORBIDDEN)
+            return
+        length = int(self.headers.get("Content-Length", "0"))
+        payload = json.loads(self.rfile.read(length) or b"{}")
+        command_id = str(payload.get("id", "")).strip()
+        killed_message = ""
+        if command_id in self.running_commands:
+            item = self.running_commands[command_id]
+            proc = item["proc"]
+            if proc.poll() is None:
+                try:
+                    if platform.system().lower().startswith("win"):
+                        _terminate_windows_process_tree(proc.pid)
+                    else:
+                        os.killpg(proc.pid, signal.SIGTERM)
+                    item["killed"] = time.time()
+                    killed_message = f"Stopped GUI command PID {proc.pid}. "
+                except OSError as exc:
+                    self._send_json({"error": f"Could not stop GUI command before queue release: {exc}"}, HTTPStatus.CONFLICT)
+                    return
+        elif command_id.startswith("pid-"):
+            pid = _int_or_none(command_id.removeprefix("pid-"))
+            if pid is not None and self._is_external_scan_debug_pid(pid):
+                try:
+                    if platform.system().lower().startswith("win"):
+                        _terminate_windows_process_tree(pid)
+                    else:
+                        os.kill(pid, signal.SIGTERM)
+                    killed_message = f"Stopped external API PID {pid}. "
+                except OSError as exc:
+                    self._send_json({"error": f"Could not stop external command before queue release: {exc}"}, HTTPStatus.CONFLICT)
+                    return
+        result = _clear_hardware_queue_lock()
+        if result.get("ok"):
+            result["message"] = killed_message + (result.get("message") or "Queue released")
+            self._send_json(result)
+        else:
+            self._send_json(result, HTTPStatus.CONFLICT)
 
     def _is_external_scan_debug_pid(self, pid: int) -> bool:
         try:

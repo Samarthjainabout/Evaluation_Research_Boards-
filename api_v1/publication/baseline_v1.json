@@ -13,7 +13,7 @@
     {
       "role": "fpga_bitstream",
       "path": "api_v1/prerequisites/fpga_zynq7020/bitstreams/caravel_scan_debug_runtime_dac81416_uart_wb_highz_v35_wb_read_repair.bit",
-      "sha256": "db1a440159e1d99e85279cd3ee342e95aa59e7a787ecc3bb361f88540a9f58b0"
+      "sha256": "378a707afff12d503dc81fa419cd7ad579ee67f1fe61875925c9579326da16b9"
     },
     {
       "role": "fpga_debug_probes",
@@ -35,7 +35,7 @@
     "v35_release_commit": "9512dd1",
     "documentation_commit": "0bb0baa",
     "fpga_source_rebuild_verified": false,
-    "note": "The v35 BIT/LTX pair is frozen by hash. The tracked FPGA build script and RTL predate the v35 release artifact, so a source rebuild must not replace the frozen BIT until equivalence is demonstrated."
+    "note": "On 2026-09-28 the incomplete local v35 BIT (3369989 bytes, db1a4401...) was replaced by the preserved full remote build (4045686 bytes, 378a707a...). Headers and the first 3369981 bytes match; the complete image successfully programmed with EOS/DONE and VIO verified. This corrects artifact integrity, not RTL. The tracked FPGA build script and RTL predate v35; do not replace the release with a source rebuild until equivalence is demonstrated."
   },
   "clocks": {
     "si5351_pll_mhz": 900.0,

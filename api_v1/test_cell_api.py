@@ -624,6 +624,34 @@ class BurstWatchdogTests(unittest.TestCase):
         self.assertEqual(self.api._popen_saleae.call_count, 2)
         self.api._program_fpga.assert_not_called()
 
+    def test_sparse_burst_accepts_required_rows_despite_unrelated_bad_decode(self):
+        capture = Path(self.temp.name) / "sparse-capture"
+        capture.mkdir()
+        (capture / "manifest.csv").write_text(
+            "packet,decoded_packet,error\n"
+            "0x0020,0x0020,\n"
+            "0x0421,0x0421,\n"
+            "0x0822,0xffff,\n"
+        )
+        self.api.config.burst_required_rows = (0, 1)
+
+        self.assertEqual(self.api._validate_burst_manifest(capture, 3), "")
+
+    def test_sparse_burst_retries_when_a_required_row_is_missing(self):
+        capture = Path(self.temp.name) / "sparse-missing"
+        capture.mkdir()
+        (capture / "manifest.csv").write_text(
+            "packet,decoded_packet,error\n"
+            "0x0020,0x0020,\n"
+            "0x0421,,\n"
+            "0x0822,0x0822,\n"
+        )
+        self.api.config.burst_required_rows = (0, 1)
+
+        error = self.api._validate_burst_manifest(capture, 3)
+        self.assertIn("missing required decoded packets", error)
+        self.assertIn("0x0421", error)
+
 
 class FpgaDacBitstreamTests(unittest.TestCase):
     def test_scan_reset_stays_at_2mhz_with_1p2ms_cell_window(self) -> None:
@@ -1260,6 +1288,41 @@ class DacTeensyRecoveryTests(unittest.TestCase):
 
 
 class InvalidReadFeedbackTests(unittest.TestCase):
+    def test_read_capture_failure_retries_after_capture_service_recovery(self):
+        with TemporaryDirectory() as directory:
+            api = ScanDebugCellAPI(ScanDebugConfig(
+                run_dir=Path(directory), persistent_fpga_runtime=False,
+                read_feedback_attempts=3,
+            ))
+            recovered = CellOperationResult(
+                cell=CellAddress(0, 30), operation="read", packet="0x03c0",
+                rails=api.config.read_rails, current_uA=25.0,
+                decoded_packet="0x03c0", ok=True, local_output_dir="test",
+            )
+            api._pulse_and_capture_once = Mock(side_effect=[
+                RuntimeError("capture/program failed index=12 after 2 attempts"), recovered,
+            ])
+            api._program_pulse = Mock()
+            result = api.read(0, 30)
+            self.assertEqual(result.feedback_attempts, 2)
+            api._program_pulse.assert_not_called()
+
+    def test_capture_failure_does_not_retry_program_operation(self):
+        with TemporaryDirectory() as directory:
+            api = ScanDebugCellAPI(ScanDebugConfig(run_dir=Path(directory), read_feedback_attempts=3))
+            api._pulse_and_capture_once = Mock(side_effect=RuntimeError("capture/program failed"))
+            with self.assertRaisesRegex(RuntimeError, "capture/program failed"):
+                api._pulse_and_capture(CellAddress(0, 30), "set", api.config.read_rails, "test")
+            self.assertEqual(api._pulse_and_capture_once.call_count, 1)
+
+    def test_persistent_capture_failure_exhausts_read_retry_budget(self):
+        with TemporaryDirectory() as directory:
+            api = ScanDebugCellAPI(ScanDebugConfig(run_dir=Path(directory), read_feedback_attempts=3))
+            api._pulse_and_capture_once = Mock(side_effect=RuntimeError("capture/program failed"))
+            with self.assertRaisesRegex(RuntimeError, "capture/program failed"):
+                api.read(0, 30)
+            self.assertEqual(api._pulse_and_capture_once.call_count, 3)
+
     def test_runtime_timeout_retries_read_only(self):
         with TemporaryDirectory() as directory:
             api = ScanDebugCellAPI(ScanDebugConfig(

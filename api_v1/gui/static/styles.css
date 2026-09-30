@@ -369,7 +369,7 @@ dt {
 
 .command-buttons {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
   gap: 8px;
 }
 
@@ -386,6 +386,25 @@ dt {
 .kill-btn:disabled {
   background: #242832;
   border-color: var(--line);
+}
+
+.queue-btn {
+  font-weight: 700;
+}
+
+.queue-clear {
+  background: #245b33;
+  border-color: #3f9a58;
+}
+
+.queue-locked {
+  background: #74521f;
+  border-color: #c78b2f;
+}
+
+.queue-unknown {
+  background: #394251;
+  border-color: #647386;
 }
 
 .api-return {

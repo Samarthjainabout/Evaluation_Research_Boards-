@@ -1,0 +1,3254 @@
+{
+  "complete": true,
+  "status": "complete",
+  "row": 13,
+  "before": [
+    {
+      "time": "2026-09-30T15:29:31.664604",
+      "order": [
+        30,
+        31
+      ],
+      "reads": {
+        "30": {
+          "cell": {
+            "row": 13,
+            "col": 30
+          },
+          "operation": "read",
+          "packet": "0x37cd",
+          "rails": {
+            "vcc_set_v": 0.5,
+            "vcc_wl_set_v": 2.5
+          },
+          "current_uA": 16.91723175352787,
+          "decoded_packet": "0x37cd",
+          "ok": true,
+          "local_output_dir": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_averaging_r13_20260930_152600\\raw\\0_r13c30_read_vcc0p500_wl2p500_wl2500_fpga-scan37cd-la12-15-20260930-125516",
+          "error": "",
+          "feedback_attempts": 1,
+          "raw_current_uA": -5.624068301937936,
+          "read_V": 0.4850509554140127,
+          "wl_V": 2.4978917197452226,
+          "G_uS": 34.87722591761159,
+          "hold_us": 49.99999999999999,
+          "G_nominal_uS": 33.83446350705574
+        },
+        "31": {
+          "cell": {
+            "row": 13,
+            "col": 31
+          },
+          "operation": "read",
+          "packet": "0x37ed",
+          "rails": {
+            "vcc_set_v": 0.5,
+            "vcc_wl_set_v": 2.5
+          },
+          "current_uA": 25.037208402437983,
+          "decoded_packet": "0x37ed",
+          "ok": true,
+          "local_output_dir": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_averaging_r13_20260930_152600\\raw\\1_r13c31_read_vcc0p500_wl2p500_wl2500_fpga-scan37ed-la12-15-20260930-125528",
+          "error": "",
+          "feedback_attempts": 1,
+          "raw_current_uA": 2.495908346972179,
+          "read_V": 0.48262179487179485,
+          "wl_V": 2.4980576923076923,
+          "G_uS": 51.87749220709965,
+          "hold_us": 50.0,
+          "G_nominal_uS": 50.074416804875966
+        }
+      },
+      "G30_uS": 34.87722591761159,
+      "G31_uS": 51.87749220709965,
+      "G31_minus_G30_uS": 17.00026628948806
+    },
+    {
+      "time": "2026-09-30T15:29:51.807605",
+      "order": [
+        31,
+        30
+      ],
+      "reads": {
+        "31": {
+          "cell": {
+            "row": 13,
+            "col": 31
+          },
+          "operation": "read",
+          "packet": "0x37ed",
+          "rails": {
+            "vcc_set_v": 0.5,
+            "vcc_wl_set_v": 2.5
+          },
+          "current_uA": 25.364540644663844,
+          "decoded_packet": "0x37ed",
+          "ok": true,
+          "local_output_dir": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_averaging_r13_20260930_152600\\raw\\2_r13c31_read_vcc0p500_wl2p500_wl2500_fpga-scan37ed-la12-15-20260930-125539",
+          "error": "",
+          "feedback_attempts": 1,
+          "raw_current_uA": 2.8232405891980386,
+          "read_V": 0.48080128205128203,
+          "wl_V": 2.4983141025641022,
+          "G_uS": 52.754727559063525,
+          "hold_us": 50.0,
+          "G_nominal_uS": 50.72908128932769
+        },
+        "30": {
+          "cell": {
+            "row": 13,
+            "col": 30
+          },
+          "operation": "read",
+          "packet": "0x37cd",
+          "rails": {
+            "vcc_set_v": 0.5,
+            "vcc_wl_set_v": 2.5
+          },
+          "current_uA": 19.48619912802445,
+          "decoded_packet": "0x37cd",
+          "ok": true,
+          "local_output_dir": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_averaging_r13_20260930_152600\\raw\\3_r13c30_read_vcc0p500_wl2p500_wl2500_fpga-scan37cd-la12-15-20260930-125549",
+          "error": "",
+          "feedback_attempts": 1,
+          "raw_current_uA": -3.0551009274413556,
+          "read_V": 0.4852628205128205,
+          "wl_V": 2.497929487179487,
+          "G_uS": 40.155969722616796,
+          "hold_us": 50.0,
+          "G_nominal_uS": 38.9723982560489
+        }
+      },
+      "G30_uS": 40.155969722616796,
+      "G31_uS": 52.754727559063525,
+      "G31_minus_G30_uS": 12.59875783644673
+    },
+    {
+      "time": "2026-09-30T15:30:13.279677",
+      "order": [
+        30,
+        31
+      ],
+      "reads": {
+        "30": {
+          "cell": {
+            "row": 13,
+            "col": 30
+          },
+          "operation": "read",
+          "packet": "0x37cd",
+          "rails": {
+            "vcc_set_v": 0.5,
+            "vcc_wl_set_v": 2.5
+          },
+          "current_uA": 20.427279324423793,
+          "decoded_packet": "0x37cd",
+          "ok": true,
+          "local_output_dir": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_averaging_r13_20260930_152600\\raw\\4_r13c30_read_vcc0p500_wl2p500_wl2500_fpga-scan37cd-la12-15-20260930-125559",
+          "error": "",
+          "feedback_attempts": 1,
+          "raw_current_uA": -2.114020731042009,
+          "read_V": 0.48657051282051283,
+          "wl_V": 2.4974807692307692,
+          "G_uS": 41.982156308676785,
+          "hold_us": 50.0,
+          "G_nominal_uS": 40.854558648847586
+        },
+        "31": {
+          "cell": {
+            "row": 13,
+            "col": 31
+          },
+          "operation": "read",
+          "packet": "0x37ed",
+          "rails": {
+            "vcc_set_v": 0.5,
+            "vcc_wl_set_v": 2.5
+          },
+          "current_uA": 25.820877233945275,
+          "decoded_packet": "0x37ed",
+          "ok": true,
+          "local_output_dir": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_averaging_r13_20260930_152600\\raw\\5_r13c31_read_vcc0p500_wl2p500_wl2500_fpga-scan37ed-la12-15-20260930-125610",
+          "error": "",
+          "feedback_attempts": 1,
+          "raw_current_uA": 3.2795771784794723,
+          "read_V": 0.4818726114649681,
+          "wl_V": 2.4988471337579616,
+          "G_uS": 53.58444663506766,
+          "hold_us": 49.99999999999999,
+          "G_nominal_uS": 51.64175446789055
+        }
+      },
+      "G30_uS": 41.982156308676785,
+      "G31_uS": 53.58444663506766,
+      "G31_minus_G30_uS": 11.602290326390872
+    }
+  ],
+  "after": [
+    {
+      "time": "2026-09-30T15:36:09.440254",
+      "order": [
+        31,
+        30
+      ],
+      "reads": {
+        "31": {
+          "cell": {
+            "row": 13,
+            "col": 31
+          },
+          "operation": "read",
+          "packet": "0x37ed",
+          "rails": {
+            "vcc_set_v": 0.5,
+            "vcc_wl_set_v": 2.5
+          },
+          "current_uA": 21.04102727859728,
+          "decoded_packet": "0x37ed",
+          "ok": true,
+          "local_output_dir": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_averaging_r13_20260930_152600\\raw\\6_r13c31_read_vcc0p500_wl2p500_wl2500_fpga-scan37ed-la12-15-20260930-130152",
+          "error": "",
+          "feedback_attempts": 1,
+          "raw_current_uA": -1.5002727768685227,
+          "read_V": 0.4816923076923077,
+          "wl_V": 2.497929487179487,
+          "G_uS": 43.68146832030735,
+          "hold_us": 49.99999999999999,
+          "G_nominal_uS": 42.08205455719456
+        },
+        "30": {
+          "cell": {
+            "row": 13,
+            "col": 30
+          },
+          "operation": "read",
+          "packet": "0x37cd",
+          "rails": {
+            "vcc_set_v": 0.5,
+            "vcc_wl_set_v": 2.5
+          },
+          "current_uA": 18.543468370955704,
+          "decoded_packet": "0x37cd",
+          "ok": true,
+          "local_output_dir": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_averaging_r13_20260930_152600\\raw\\7_r13c30_read_vcc0p500_wl2p500_wl2500_fpga-scan37cd-la12-15-20260930-130206",
+          "error": "",
+          "feedback_attempts": 1,
+          "raw_current_uA": -3.997831684510099,
+          "read_V": 0.4852292993630573,
+          "wl_V": 2.4984012738853503,
+          "G_uS": 38.21588761292246,
+          "hold_us": 49.99999999999999,
+          "G_nominal_uS": 37.08693674191141
+        }
+      },
+      "G30_uS": 38.21588761292246,
+      "G31_uS": 43.68146832030735,
+      "G31_minus_G30_uS": 5.465580707384895
+    },
+    {
+      "time": "2026-09-30T15:36:30.984785",
+      "order": [
+        30,
+        31
+      ],
+      "reads": {
+        "30": {
+          "cell": {
+            "row": 13,
+            "col": 30
+          },
+          "operation": "read",
+          "packet": "0x37cd",
+          "rails": {
+            "vcc_set_v": 0.5,
+            "vcc_wl_set_v": 2.5
+          },
+          "current_uA": 18.763340426442344,
+          "decoded_packet": "0x37cd",
+          "ok": true,
+          "local_output_dir": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_averaging_r13_20260930_152600\\raw\\8_r13c30_read_vcc0p500_wl2p500_wl2500_fpga-scan37cd-la12-15-20260930-130217",
+          "error": "",
+          "feedback_attempts": 1,
+          "raw_current_uA": -3.7779596290234614,
+          "read_V": 0.4846089743589743,
+          "wl_V": 2.4983141025641022,
+          "G_uS": 38.718516204248814,
+          "hold_us": 50.0,
+          "G_nominal_uS": 37.52668085288469
+        },
+        "31": {
+          "cell": {
+            "row": 13,
+            "col": 31
+          },
+          "operation": "read",
+          "packet": "0x37ed",
+          "rails": {
+            "vcc_set_v": 0.5,
+            "vcc_wl_set_v": 2.5
+          },
+          "current_uA": 25.255429897255222,
+          "decoded_packet": "0x37ed",
+          "ok": true,
+          "local_output_dir": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_averaging_r13_20260930_152600\\raw\\9_r13c31_read_vcc0p500_wl2p500_wl2500_fpga-scan37ed-la12-15-20260930-130228",
+          "error": "",
+          "feedback_attempts": 1,
+          "raw_current_uA": 2.714129841789419,
+          "read_V": 0.4815384615384615,
+          "wl_V": 2.4992115384615383,
+          "G_uS": 52.44737838088145,
+          "hold_us": 50.0,
+          "G_nominal_uS": 50.510859794510445
+        }
+      },
+      "G30_uS": 38.718516204248814,
+      "G31_uS": 52.44737838088145,
+      "G31_minus_G30_uS": 13.728862176632639
+    },
+    {
+      "time": "2026-09-30T15:36:52.034134",
+      "order": [
+        31,
+        30
+      ],
+      "reads": {
+        "31": {
+          "cell": {
+            "row": 13,
+            "col": 31
+          },
+          "operation": "read",
+          "packet": "0x37ed",
+          "rails": {
+            "vcc_set_v": 0.5,
+            "vcc_wl_set_v": 2.5
+          },
+          "current_uA": 24.79092737624098,
+          "decoded_packet": "0x37ed",
+          "ok": true,
+          "local_output_dir": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_averaging_r13_20260930_152600\\raw\\10_r13c31_read_vcc0p500_wl2p500_wl2500_fpga-scan37ed-la12-15-20260930-130238",
+          "error": "",
+          "feedback_attempts": 1,
+          "raw_current_uA": 2.2496273207751747,
+          "read_V": 0.4824649681528662,
+          "wl_V": 2.497191082802548,
+          "G_uS": 51.38389108571737,
+          "hold_us": 50.0,
+          "G_nominal_uS": 49.58185475248196
+        },
+        "30": {
+          "cell": {
+            "row": 13,
+            "col": 30
+          },
+          "operation": "read",
+          "packet": "0x37cd",
+          "rails": {
+            "vcc_set_v": 0.5,
+            "vcc_wl_set_v": 2.5
+          },
+          "current_uA": 17.454011457538904,
+          "decoded_packet": "0x37cd",
+          "ok": true,
+          "local_output_dir": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_averaging_r13_20260930_152600\\raw\\11_r13c30_read_vcc0p500_wl2p500_wl2500_fpga-scan37cd-la12-15-20260930-130248",
+          "error": "",
+          "feedback_attempts": 1,
+          "raw_current_uA": -5.0872885979269,
+          "read_V": 0.48425641025641025,
+          "wl_V": 2.498955128205128,
+          "G_uS": 36.04291257248847,
+          "hold_us": 50.0,
+          "G_nominal_uS": 34.90802291507781
+        }
+      },
+      "G30_uS": 36.04291257248847,
+      "G31_uS": 51.38389108571737,
+      "G31_minus_G30_uS": 15.340978513228904
+    }
+  ],
+  "readings": [
+    {
+      "attempt": 1,
+      "time": 1790753428.5083072,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D533",
+          "0x0007D533",
+          "0x0007D533",
+          "0x0007D533"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D533",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D533",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 51
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D533",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 51
+          },
+          {
+            "raw": "0x0007D533",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 51
+          },
+          {
+            "raw": "0x0007D533",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 51
+          },
+          {
+            "raw": "0x0007D533",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 51
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D533",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 51
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 2,
+      "time": 1790753446.369269,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D52D",
+          "0x0007D52D",
+          "0x0007D52D",
+          "0x0007D52D"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D52D",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D52D",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 45
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D52D",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 45
+          },
+          {
+            "raw": "0x0007D52D",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 45
+          },
+          {
+            "raw": "0x0007D52D",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 45
+          },
+          {
+            "raw": "0x0007D52D",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 45
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D52D",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 45
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 3,
+      "time": 1790753465.1193357,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D52C",
+          "0x0007D52C",
+          "0x0007D52C",
+          "0x0007D52C"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D52C",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D52C",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 44
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D52C",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 44
+          },
+          {
+            "raw": "0x0007D52C",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 44
+          },
+          {
+            "raw": "0x0007D52C",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 44
+          },
+          {
+            "raw": "0x0007D52C",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 44
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D52C",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 44
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 4,
+      "time": 1790753487.9606829,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D539",
+          "0x0007D539",
+          "0x0007D539",
+          "0x0007D539"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D539",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D539",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 57
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D539",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 57
+          },
+          {
+            "raw": "0x0007D539",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 57
+          },
+          {
+            "raw": "0x0007D539",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 57
+          },
+          {
+            "raw": "0x0007D539",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 57
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D539",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 57
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 5,
+      "time": 1790753508.837811,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D53E",
+          "0x0007D53E",
+          "0x0007D53E",
+          "0x0007D53E"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D53E",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D53E",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 62
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D53E",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 62
+          },
+          {
+            "raw": "0x0007D53E",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 62
+          },
+          {
+            "raw": "0x0007D53E",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 62
+          },
+          {
+            "raw": "0x0007D53E",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 62
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D53E",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 62
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 6,
+      "time": 1790753524.127545,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D53A",
+          "0x0007D53A",
+          "0x0007D53A",
+          "0x0007D53A"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D53A",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D53A",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 58
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D53A",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 58
+          },
+          {
+            "raw": "0x0007D53A",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 58
+          },
+          {
+            "raw": "0x0007D53A",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 58
+          },
+          {
+            "raw": "0x0007D53A",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 58
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D53A",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 58
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 7,
+      "time": 1790753539.6283498,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D531",
+          "0x0007D531",
+          "0x0007D531",
+          "0x0007D531"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D531",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D531",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 49
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D531",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 49
+          },
+          {
+            "raw": "0x0007D531",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 49
+          },
+          {
+            "raw": "0x0007D531",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 49
+          },
+          {
+            "raw": "0x0007D531",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 49
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D531",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 49
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 8,
+      "time": 1790753554.967899,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D539",
+          "0x0007D539",
+          "0x0007D539",
+          "0x0007D539"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D539",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D539",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 57
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D539",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 57
+          },
+          {
+            "raw": "0x0007D539",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 57
+          },
+          {
+            "raw": "0x0007D539",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 57
+          },
+          {
+            "raw": "0x0007D539",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 57
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D539",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 57
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 9,
+      "time": 1790753571.684456,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D52E",
+          "0x0007D52E",
+          "0x0007D52E",
+          "0x0007D52E"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D52E",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D52E",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 46
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D52E",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 46
+          },
+          {
+            "raw": "0x0007D52E",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 46
+          },
+          {
+            "raw": "0x0007D52E",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 46
+          },
+          {
+            "raw": "0x0007D52E",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 46
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D52E",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 46
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 10,
+      "time": 1790753588.7150464,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D529",
+          "0x0007D529",
+          "0x0007D529",
+          "0x0007D529"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D529",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D529",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 41
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D529",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 41
+          },
+          {
+            "raw": "0x0007D529",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 41
+          },
+          {
+            "raw": "0x0007D529",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 41
+          },
+          {
+            "raw": "0x0007D529",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 41
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D529",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 41
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 11,
+      "time": 1790753604.1012068,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D531",
+          "0x0007D531",
+          "0x0007D531",
+          "0x0007D531"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D531",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D531",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 49
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D531",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 49
+          },
+          {
+            "raw": "0x0007D531",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 49
+          },
+          {
+            "raw": "0x0007D531",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 49
+          },
+          {
+            "raw": "0x0007D531",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 49
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D531",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 49
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 12,
+      "time": 1790753619.7774231,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D53A",
+          "0x0007D53A",
+          "0x0007D53A",
+          "0x0007D53A"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D53A",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D53A",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 58
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D53A",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 58
+          },
+          {
+            "raw": "0x0007D53A",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 58
+          },
+          {
+            "raw": "0x0007D53A",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 58
+          },
+          {
+            "raw": "0x0007D53A",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 58
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D53A",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 58
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 13,
+      "time": 1790753635.2257097,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D537",
+          "0x0007D537",
+          "0x0007D537",
+          "0x0007D537"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D537",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D537",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 55
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D537",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 55
+          },
+          {
+            "raw": "0x0007D537",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 55
+          },
+          {
+            "raw": "0x0007D537",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 55
+          },
+          {
+            "raw": "0x0007D537",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 55
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D537",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 55
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 14,
+      "time": 1790753650.8243861,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D535",
+          "0x0007D535",
+          "0x0007D535",
+          "0x0007D535"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D535",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D535",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 53
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D535",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 53
+          },
+          {
+            "raw": "0x0007D535",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 53
+          },
+          {
+            "raw": "0x0007D535",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 53
+          },
+          {
+            "raw": "0x0007D535",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 53
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D535",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 53
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 15,
+      "time": 1790753667.0587115,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D529",
+          "0x0007D529",
+          "0x0007D529",
+          "0x0007D529"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D529",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D529",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 41
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D529",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 41
+          },
+          {
+            "raw": "0x0007D529",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 41
+          },
+          {
+            "raw": "0x0007D529",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 41
+          },
+          {
+            "raw": "0x0007D529",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 41
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D529",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 41
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 16,
+      "time": 1790753683.4832664,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D52F",
+          "0x0007D52F",
+          "0x0007D52F",
+          "0x0007D52F"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D52F",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D52F",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 47
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D52F",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 47
+          },
+          {
+            "raw": "0x0007D52F",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 47
+          },
+          {
+            "raw": "0x0007D52F",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 47
+          },
+          {
+            "raw": "0x0007D52F",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 47
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D52F",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 47
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 17,
+      "time": 1790753698.9026203,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D52B",
+          "0x0007D52B",
+          "0x0007D52B",
+          "0x0007D52B"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D52B",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D52B",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 43
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D52B",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 43
+          },
+          {
+            "raw": "0x0007D52B",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 43
+          },
+          {
+            "raw": "0x0007D52B",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 43
+          },
+          {
+            "raw": "0x0007D52B",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 43
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D52B",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 43
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 18,
+      "time": 1790753714.3838782,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D536",
+          "0x0007D536",
+          "0x0007D536",
+          "0x0007D536"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D536",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D536",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 54
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D536",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 54
+          },
+          {
+            "raw": "0x0007D536",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 54
+          },
+          {
+            "raw": "0x0007D536",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 54
+          },
+          {
+            "raw": "0x0007D536",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 54
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D536",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 54
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 19,
+      "time": 1790753729.8018043,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D535",
+          "0x0007D535",
+          "0x0007D535",
+          "0x0007D535"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D535",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D535",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 53
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D535",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 53
+          },
+          {
+            "raw": "0x0007D535",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 53
+          },
+          {
+            "raw": "0x0007D535",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 53
+          },
+          {
+            "raw": "0x0007D535",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 53
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D535",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 53
+        }
+      },
+      "usable": true
+    },
+    {
+      "attempt": 20,
+      "time": 1790753745.085141,
+      "wb": {
+        "operation": "wb-read",
+        "address": "0x30000004",
+        "value": "0x5BF2AAFF",
+        "command_value": "0x5BF2AAFF",
+        "dac_profile": {
+          "mode": "wb-read-bias",
+          "updated": true,
+          "vcc_wl_reset_v": 0.5,
+          "vcc_reset_v": 2.5,
+          "bias_skew": null,
+          "bias_voltage_v": null
+        },
+        "dac_profile_applied": true,
+        "fpga_reset_applied": true,
+        "fpga_reset_planned": true,
+        "fpga_reset_assert_ms": 120,
+        "wb_test_pins": {
+          "TM": "high-Z",
+          "DR": "high-Z",
+          "DL": "pulse-width runtime command then high-Z",
+          "CC": "low"
+        },
+        "pll_changed": false,
+        "si5351_pll_hz": 900000000,
+        "clock_output_changed": true,
+        "clock_mode": "10 MHz WB",
+        "fpga_uart_capture": "passive-vio",
+        "permanent_caravel_firmware": true,
+        "caravel_flash_planned": false,
+        "dry_run": false,
+        "ok": true,
+        "read_setup_sequence": [
+          "0x00036472",
+          "0x462B000B",
+          "0x43201405",
+          "0x5BF2AAFF"
+        ],
+        "read_sequence_source": "remote read_mode_wb.c and caravel_uart_captures/read_mode_wb_*_20260729 logs",
+        "read_post_ack_wb_cycles": 500,
+        "readback_attempts": 15,
+        "read_setup_sent_once": true,
+        "repeat_zero_behavior": "readbacks_only_no_setup_reissue",
+        "uart_frame_per_readback_attempt": true,
+        "runtime_command": "0x96FCAABFE0000107",
+        "uart_tag": "0x80",
+        "passive_uart_snapshot_skipped": true,
+        "readbacks": [
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x00000000",
+          "0x0007D53B",
+          "0x0007D53B",
+          "0x0007D53B",
+          "0x0007D53B"
+        ],
+        "readbacks_collected": 15,
+        "caravel_firmware_reflashed": false,
+        "firmware": "/home/ubuntu-24-04/caravel_board/firmware/chipignite/reram_prog/gui_wb_mode/gui_wb_mode.hex",
+        "uart_transport": "Caravel GPIO6 -> AX7020 J10-10 -> persistent FPGA VIO",
+        "return_value": "0x0007D53B",
+        "nonzero": true,
+        "nonzero_wait_timed_out": false,
+        "uart": "FPGA/VIO tag=0x80 value=0x0007D53B",
+        "decoded_return": {
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 59
+        },
+        "matching_frames": [
+          {
+            "raw": "0x0007D53B",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 59
+          },
+          {
+            "raw": "0x0007D53B",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 59
+          },
+          {
+            "raw": "0x0007D53B",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 59
+          },
+          {
+            "raw": "0x0007D53B",
+            "extra": 0,
+            "col_addr": 31,
+            "coarse_cnt": 21,
+            "fine_cnt": 59
+          }
+        ],
+        "selected_matching": {
+          "raw": "0x0007D53B",
+          "extra": 0,
+          "col_addr": 31,
+          "coarse_cnt": 21,
+          "fine_cnt": 59
+        }
+      },
+      "usable": true
+    }
+  ],
+  "failures": [],
+  "fixed_model_coefficients": [
+    -60.36904534500966,
+    2.8836841925526455,
+    0.18079914689081145
+  ],
+  "model_source": "C:\\Users\\elesamj\\Desktop\\Evaluation_Research_Boards-\\api_v1\\runs\\tdc_extended_readonly_20260930_132700\\report.json",
+  "started": "2026-09-30T15:26:59.941851",
+  "programming": false,
+  "analysis": {
+    "valid_conversions": 20,
+    "series": {
+      "coarse": {
+        "mean": 21,
+        "sd": 0.0,
+        "minimum": 21,
+        "maximum": 21,
+        "averaging": [
+          {
+            "n": 1,
+            "nonoverlapping_batches": 20,
+            "prefix_mean": 21,
+            "batch_means": [
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21,
+              21
+            ],
+            "observed_batch_mean_sd": 0.0,
+            "iid_expected_sem_not_measured": 0.0
+          },
+          {
+            "n": 3,
+            "nonoverlapping_batches": 6,
+            "prefix_mean": 21,
+            "batch_means": [
+              21,
+              21,
+              21,
+              21,
+              21,
+              21
+            ],
+            "observed_batch_mean_sd": 0.0,
+            "iid_expected_sem_not_measured": 0.0
+          },
+          {
+            "n": 5,
+            "nonoverlapping_batches": 4,
+            "prefix_mean": 21,
+            "batch_means": [
+              21,
+              21,
+              21,
+              21
+            ],
+            "observed_batch_mean_sd": 0.0,
+            "iid_expected_sem_not_measured": 0.0
+          },
+          {
+            "n": 10,
+            "nonoverlapping_batches": 2,
+            "prefix_mean": 21,
+            "batch_means": [
+              21,
+              21
+            ],
+            "observed_batch_mean_sd": 0.0,
+            "iid_expected_sem_not_measured": 0.0
+          },
+          {
+            "n": 20,
+            "nonoverlapping_batches": 1,
+            "prefix_mean": 21,
+            "batch_means": [
+              21
+            ],
+            "observed_batch_mean_sd": null,
+            "iid_expected_sem_not_measured": 0.0
+          }
+        ],
+        "second10_minus_first10": 0
+      },
+      "fine_raw_not_wrap_corrected": {
+        "mean": 51.1,
+        "sd": 6.4310103978179125,
+        "minimum": 41,
+        "maximum": 62,
+        "averaging": [
+          {
+            "n": 1,
+            "nonoverlapping_batches": 20,
+            "prefix_mean": 51,
+            "batch_means": [
+              51,
+              45,
+              44,
+              57,
+              62,
+              58,
+              49,
+              57,
+              46,
+              41,
+              49,
+              58,
+              55,
+              53,
+              41,
+              47,
+              43,
+              54,
+              53,
+              59
+            ],
+            "observed_batch_mean_sd": 6.4310103978179125,
+            "iid_expected_sem_not_measured": 6.4310103978179125
+          },
+          {
+            "n": 3,
+            "nonoverlapping_batches": 6,
+            "prefix_mean": 46.666666666666664,
+            "batch_means": [
+              46.666666666666664,
+              59,
+              50.666666666666664,
+              49.333333333333336,
+              49.666666666666664,
+              48
+            ],
+            "observed_batch_mean_sd": 4.364842706427329,
+            "iid_expected_sem_not_measured": 3.7129455843414543
+          },
+          {
+            "n": 5,
+            "nonoverlapping_batches": 4,
+            "prefix_mean": 51.8,
+            "batch_means": [
+              51.8,
+              50.2,
+              51.2,
+              51.2
+            ],
+            "observed_batch_mean_sd": 0.6633249580710779,
+            "iid_expected_sem_not_measured": 2.8760352827057636
+          },
+          {
+            "n": 10,
+            "nonoverlapping_batches": 2,
+            "prefix_mean": 51,
+            "batch_means": [
+              51,
+              51.2
+            ],
+            "observed_batch_mean_sd": 0.1414213562373115,
+            "iid_expected_sem_not_measured": 2.0336640513330146
+          },
+          {
+            "n": 20,
+            "nonoverlapping_batches": 1,
+            "prefix_mean": 51.1,
+            "batch_means": [
+              51.1
+            ],
+            "observed_batch_mean_sd": null,
+            "iid_expected_sem_not_measured": 1.4380176413528818
+          }
+        ],
+        "second10_minus_first10": 0.20000000000000284
+      },
+      "ticks_plus_diagnostic": {
+        "mean": 2151.1,
+        "sd": 6.4310103978179125,
+        "minimum": 2141,
+        "maximum": 2162,
+        "averaging": [
+          {
+            "n": 1,
+            "nonoverlapping_batches": 20,
+            "prefix_mean": 2151,
+            "batch_means": [
+              2151,
+              2145,
+              2144,
+              2157,
+              2162,
+              2158,
+              2149,
+              2157,
+              2146,
+              2141,
+              2149,
+              2158,
+              2155,
+              2153,
+              2141,
+              2147,
+              2143,
+              2154,
+              2153,
+              2159
+            ],
+            "observed_batch_mean_sd": 6.4310103978179125,
+            "iid_expected_sem_not_measured": 6.4310103978179125
+          },
+          {
+            "n": 3,
+            "nonoverlapping_batches": 6,
+            "prefix_mean": 2146.6666666666665,
+            "batch_means": [
+              2146.6666666666665,
+              2159,
+              2150.6666666666665,
+              2149.3333333333335,
+              2149.6666666666665,
+              2148
+            ],
+            "observed_batch_mean_sd": 4.364842706427353,
+            "iid_expected_sem_not_measured": 3.7129455843414543
+          },
+          {
+            "n": 5,
+            "nonoverlapping_batches": 4,
+            "prefix_mean": 2151.8,
+            "batch_means": [
+              2151.8,
+              2150.2,
+              2151.2,
+              2151.2
+            ],
+            "observed_batch_mean_sd": 0.663324958071208,
+            "iid_expected_sem_not_measured": 2.8760352827057636
+          },
+          {
+            "n": 10,
+            "nonoverlapping_batches": 2,
+            "prefix_mean": 2151,
+            "batch_means": [
+              2151,
+              2151.2
+            ],
+            "observed_batch_mean_sd": 0.14142135623718088,
+            "iid_expected_sem_not_measured": 2.0336640513330146
+          },
+          {
+            "n": 20,
+            "nonoverlapping_batches": 1,
+            "prefix_mean": 2151.1,
+            "batch_means": [
+              2151.1
+            ],
+            "observed_batch_mean_sd": null,
+            "iid_expected_sem_not_measured": 1.4380176413528818
+          }
+        ],
+        "second10_minus_first10": 0.1999999999998181
+      },
+      "ticks_minus_diagnostic": {
+        "mean": 2147.9,
+        "sd": 6.4310103978179125,
+        "minimum": 2137,
+        "maximum": 2158,
+        "averaging": [
+          {
+            "n": 1,
+            "nonoverlapping_batches": 20,
+            "prefix_mean": 2148,
+            "batch_means": [
+              2148,
+              2154,
+              2155,
+              2142,
+              2137,
+              2141,
+              2150,
+              2142,
+              2153,
+              2158,
+              2150,
+              2141,
+              2144,
+              2146,
+              2158,
+              2152,
+              2156,
+              2145,
+              2146,
+              2140
+            ],
+            "observed_batch_mean_sd": 6.4310103978179125,
+            "iid_expected_sem_not_measured": 6.4310103978179125
+          },
+          {
+            "n": 3,
+            "nonoverlapping_batches": 6,
+            "prefix_mean": 2152.3333333333335,
+            "batch_means": [
+              2152.3333333333335,
+              2140,
+              2148.3333333333335,
+              2149.6666666666665,
+              2149.3333333333335,
+              2151
+            ],
+            "observed_batch_mean_sd": 4.364842706427353,
+            "iid_expected_sem_not_measured": 3.7129455843414543
+          },
+          {
+            "n": 5,
+            "nonoverlapping_batches": 4,
+            "prefix_mean": 2147.2,
+            "batch_means": [
+              2147.2,
+              2148.8,
+              2147.8,
+              2147.8
+            ],
+            "observed_batch_mean_sd": 0.663324958071208,
+            "iid_expected_sem_not_measured": 2.8760352827057636
+          },
+          {
+            "n": 10,
+            "nonoverlapping_batches": 2,
+            "prefix_mean": 2148,
+            "batch_means": [
+              2148,
+              2147.8
+            ],
+            "observed_batch_mean_sd": 0.14142135623718088,
+            "iid_expected_sem_not_measured": 2.0336640513330146
+          },
+          {
+            "n": 20,
+            "nonoverlapping_batches": 1,
+            "prefix_mean": 2147.9,
+            "batch_means": [
+              2147.9
+            ],
+            "observed_batch_mean_sd": null,
+            "iid_expected_sem_not_measured": 1.4380176413528818
+          }
+        ],
+        "second10_minus_first10": -0.1999999999998181
+      },
+      "fixed_model_delta_uS": {
+        "mean": 9.427159104716361,
+        "sd": 1.1627211935714166,
+        "minimum": 7.601087721119166,
+        "maximum": 11.397869805826208,
+        "averaging": [
+          {
+            "n": 1,
+            "nonoverlapping_batches": 20,
+            "prefix_mean": 9.409079190027281,
+            "batch_means": [
+              9.409079190027281,
+              8.324284308682412,
+              8.1434851617916,
+              10.493874071372149,
+              11.397869805826208,
+              10.67467321826296,
+              9.047480896245657,
+              10.493874071372149,
+              8.505083455573224,
+              7.601087721119166,
+              9.047480896245657,
+              10.67467321826296,
+              10.132275777590527,
+              9.770677483808903,
+              7.601087721119166,
+              8.685882602464035,
+              7.96268601490079,
+              9.951476630699716,
+              9.770677483808903,
+              10.855472365153773
+            ],
+            "observed_batch_mean_sd": 1.1627211935714166,
+            "iid_expected_sem_not_measured": 1.1627211935714166
+          },
+          {
+            "n": 3,
+            "nonoverlapping_batches": 6,
+            "prefix_mean": 8.625616220167098,
+            "batch_means": [
+              8.625616220167098,
+              10.855472365153773,
+              9.348812807730344,
+              9.107747278542595,
+              9.168013660839533,
+              8.866681749354846
+            ],
+            "observed_batch_mean_sd": 0.7891598376346418,
+            "iid_expected_sem_not_measured": 0.6712973941009404
+          },
+          {
+            "n": 5,
+            "nonoverlapping_batches": 4,
+            "prefix_mean": 9.55371850753993,
+            "batch_means": [
+              9.55371850753993,
+              9.26443987251463,
+              9.445239019405443,
+              9.445239019405443
+            ],
+            "observed_batch_mean_sd": 0.11992858653063504,
+            "iid_expected_sem_not_measured": 0.5199847255410758
+          },
+          {
+            "n": 10,
+            "nonoverlapping_batches": 2,
+            "prefix_mean": 9.409079190027281,
+            "batch_means": [
+              9.409079190027281,
+              9.445239019405443
+            ],
+            "observed_batch_mean_sd": 0.025568860559847032,
+            "iid_expected_sem_not_measured": 0.36768472554352044
+          },
+          {
+            "n": 20,
+            "nonoverlapping_batches": 1,
+            "prefix_mean": 9.427159104716361,
+            "batch_means": [
+              9.427159104716361
+            ],
+            "observed_batch_mean_sd": null,
+            "iid_expected_sem_not_measured": 0.2599923627705379
+          }
+        ],
+        "second10_minus_first10": 0.0361598293781622
+      }
+    },
+    "caution": "20 conversions cannot establish stationarity or estimate scatter of independent 20-reading batches. Tick mappings and conductance model remain provisional.",
+    "scan_reference": {
+      "before_delta_mean_uS": 13.733771484108553,
+      "before_delta_sd_uS": 2.872408068124671,
+      "after_delta_mean_uS": 11.511807132415479,
+      "after_delta_sd_uS": 5.297864688507412,
+      "delta_drift_uS": -2.2219643516930745,
+      "bracket_mean_delta_uS": 12.622789308262016,
+      "model_mean_minus_scan_uS": -3.1956302035456545,
+      "individual_cell_drift_uS": {
+        "G30": -1.346011853081805,
+        "G31": -3.5679762047748866
+      }
+    }
+  }
+}

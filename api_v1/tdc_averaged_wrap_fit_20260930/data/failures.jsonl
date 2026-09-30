@@ -1,0 +1,1 @@
+{"row": 24, "error": "Invalid read feedback for cell (24,31): -4.128980470350729 uA. Current is missing, non-finite, or below the calibrated near-zero allowance (3 uA); check shunt measurement wiring and calibration before programming."}

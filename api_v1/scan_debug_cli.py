@@ -14,6 +14,7 @@ try:
         RESET_PROGRAM_VCC_SET_SWEEP_V,
         RESET_PROGRAM_VCC_WL_V,
         SET_PROGRAM_VCC_SET_V,
+        SET_PROGRAM_VCC_SET_SWEEP_V,
         SET_PROGRAM_VCC_WL_V,
         DEFAULT_WB_READ_VALUE,
         DEFAULT_WB_WRITE_VALUE,
@@ -30,6 +31,7 @@ except ImportError:
         RESET_PROGRAM_VCC_SET_SWEEP_V,
         RESET_PROGRAM_VCC_WL_V,
         SET_PROGRAM_VCC_SET_V,
+        SET_PROGRAM_VCC_SET_SWEEP_V,
         SET_PROGRAM_VCC_WL_V,
         DEFAULT_WB_READ_VALUE,
         DEFAULT_WB_WRITE_VALUE,
@@ -159,6 +161,10 @@ def main() -> int:
             "read-array",
             "wb-read",
             "wb-write",
+            "memory-controller-set-test",
+            "memory-controller-reset-test",
+            "memory-controller-set",
+            "memory-controller-reset",
             "dac-update",
             "build-runtime-bitstream",
             "build-array-bitstreams",
@@ -184,14 +190,14 @@ def main() -> int:
     parser.add_argument("--read-calibration", default=str(Path(__file__).resolve().parent / "calibration/read_offset_A25E1BAA6577FA4D_0p5V.json"),
                         help="Device/read-voltage-specific offset profile; pass an empty value for raw diagnostics")
     parser.add_argument("--read-vcc-wl-set", type=float, default=2.5)
-    parser.add_argument("--set-vcc-set", default=str(SET_PROGRAM_VCC_SET_V))
+    parser.add_argument("--set-vcc-set", default=",".join(str(value) for value in SET_PROGRAM_VCC_SET_SWEEP_V))
     parser.add_argument("--set-vcc-wl-set", default=",".join(str(value) for value in SET_PROGRAM_VCC_WL_V))
     parser.add_argument(
         "--reset-vcc-set",
         default=",".join(str(value) for value in RESET_PROGRAM_VCC_SET_SWEEP_V),
     )
     parser.add_argument("--reset-vcc-wl-set", default=",".join(str(value) for value in RESET_PROGRAM_VCC_WL_V))
-    parser.add_argument("--set-threshold", type=float, default=70.0)
+    parser.add_argument("--set-threshold", type=float, default=35.0)
     parser.add_argument("--reset-threshold", type=float, default=5.0)
 
     parser.add_argument("--zynq-host", default=os.environ.get("SCAN_DEBUG_ZYNQ_HOST", "geethika@100.116.216.70"))
@@ -329,42 +335,62 @@ def main() -> int:
         "bias_skew": args.bias_skew,
         "bias_voltage_V": args.bias_voltage,
     })
-    with api.hardware_queue(args.operation):
-        if args.operation == "cycle":
-            api._append_progress("cycle", "Starting calibrated SET/RESET cycle",
-                row=args.row, col=args.col, set_threshold_uA=args.set_threshold,
-                reset_threshold_uA=args.reset_threshold, confirm_reads=args.confirm_reads)
-        if args.operation == "read":
-            result = api.read(args.row, args.col)
-        elif args.operation == "set":
-            result = api.set_cell(args.row, args.col)
-        elif args.operation == "reset":
-            result = api.reset_cell(args.row, args.col)
-        elif args.operation == "cycle":
-            result = api.cycle_cell(args.row, args.col)
-        elif args.operation == "read-array":
-            result = api.read_array(args.row_start, args.row_end, args.col_start, args.col_end, mode=args.array_mode)
-        elif args.operation == "wb-read":
-            result = api.wishbone_access(
-                "read", args.wb_value,
-                bias_skew=args.bias_skew, bias_voltage_v=args.bias_voltage,
-            )
-        elif args.operation == "wb-write":
-            result = api.wishbone_access(
-                "write", args.wb_value,
-                bias_skew=args.bias_skew, bias_voltage_v=args.bias_voltage,
-            )
-        elif args.operation == "dac-update":
-            result = api.set_bias_voltage(args.bias_skew, args.bias_voltage)
-        elif args.operation == "build-runtime-bitstream":
-            result = {"operation": "build-runtime-bitstream", "bitstream": api._ensure_runtime_bitstream(force=True)}
-        else:
-            result = api.prebuild_array_column_bitstreams(
-                row_start=args.row_start,
-                col_start=args.col_start,
-                col_end=args.col_end,
-                force=args.force_bitstreams,
-            )
+    try:
+        with api.hardware_queue(args.operation):
+            if args.operation == "cycle":
+                api._append_progress("cycle", "Starting calibrated SET/RESET cycle",
+                    row=args.row, col=args.col, set_threshold_uA=args.set_threshold,
+                    reset_threshold_uA=args.reset_threshold, confirm_reads=args.confirm_reads)
+            if args.operation == "read":
+                result = api.read(args.row, args.col)
+            elif args.operation == "set":
+                result = api.set_cell(args.row, args.col)
+            elif args.operation == "reset":
+                result = api.reset_cell(args.row, args.col)
+            elif args.operation == "cycle":
+                result = api.cycle_cell(args.row, args.col)
+            elif args.operation == "read-array":
+                result = api.read_array(args.row_start, args.row_end, args.col_start, args.col_end, mode=args.array_mode)
+            elif args.operation == "wb-read":
+                result = api.wishbone_access(
+                    "read", args.wb_value,
+                    bias_skew=args.bias_skew, bias_voltage_v=args.bias_voltage,
+                )
+            elif args.operation == "wb-write":
+                result = api.wishbone_access(
+                    "write", args.wb_value,
+                    bias_skew=args.bias_skew, bias_voltage_v=args.bias_voltage,
+                )
+            elif args.operation in {
+                "memory-controller-set-test",
+                "memory-controller-set",
+                "memory-controller-reset-test",
+                "memory-controller-reset",
+            }:
+                mc_operation = "reset" if "reset" in args.operation else "set"
+                result = api.memory_controller_access(mc_operation, args.row, args.col)
+            elif args.operation == "dac-update":
+                result = api.set_bias_voltage(args.bias_skew, args.bias_voltage)
+            elif args.operation == "build-runtime-bitstream":
+                result = {"operation": "build-runtime-bitstream", "bitstream": api._ensure_runtime_bitstream(force=True)}
+            else:
+                result = api.prebuild_array_column_bitstreams(
+                    row_start=args.row_start,
+                    col_start=args.col_start,
+                    col_end=args.col_end,
+                    force=args.force_bitstreams,
+                )
+    except Exception as exc:
+        api._append_progress(args.operation, f"Command failed: {exc}", ok=False, error=type(exc).__name__)
+        api._append_jsonl("command_errors.jsonl", {
+            "operation": args.operation,
+            "row": args.row,
+            "col": args.col,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "time": time.time(),
+        })
+        raise
     print(json.dumps(result if isinstance(result, dict) else result.__dict__, default=lambda item: item.__dict__, indent=2))
     return 0
 

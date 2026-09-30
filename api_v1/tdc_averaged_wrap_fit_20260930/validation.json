@@ -1,0 +1,41 @@
+{
+  "tests_run": 123,
+  "failures": [
+    {
+      "test": "api_v1.test_cell_api.ReadRailDefaultTests.test_half_volt_read_uses_updated_state_thresholds",
+      "assertion": "AssertionError: 35.0 != 70.0"
+    },
+    {
+      "test": "api_v1.test_cell_api.ReadRailDefaultTests.test_programming_sweeps_hold_vcc_set_and_use_projected_wl_levels",
+      "assertion": "AssertionError: Tuples differ: (2.3, 2.4, 2.5) != (2.3,)"
+    },
+    {
+      "test": "api_v1.gui.test_server.DefaultThresholdTests.test_gui_thresholds_match_half_volt_read_window",
+      "assertion": "AssertionError: {'set': 35.0, 'reset': 5.0} != {'set': 70.0, 'reset': 5.0}"
+    },
+    {
+      "test": "api_v1.gui.test_server.DefaultThresholdTests.test_scan_debug_and_wishbone_are_namespaced_without_breaking_legacy_operations",
+      "assertion": "AssertionError: 'read' not found in ('memory-controller-reset', 'memory-controller-reset-test', 'memory-controller-set', 'memory-controller-set-test', 'wb-read', 'wb-write')"
+    },
+    {
+      "test": "api_v1.gui.test_server.HeatmapScaleTests.test_wishbone_controls_include_read_and_write_defaults",
+      "assertion": "AssertionError: '[\"wb-read\", \"wb-write\"].includes(payload.operation)' not found in 'const state = {\\n  selectedRun: \"\",\\n  activeKey: \"\",\\n  commandsEnabled: false,\\n  manualRun: false,\\n  currentMin_uA: 0,\\n  currentMax_uA: 200,\\n};\\n\\ncon"
+    },
+    {
+      "test": "api_v1.gui.test_server.SweepResumeTests.test_completed_reset_sweep_is_not_resumable",
+      "assertion": "AssertionError: True is not false"
+    },
+    {
+      "test": "api_v1.gui.test_server.SweepResumeTests.test_interrupted_reset_sweep_remains_resumable",
+      "assertion": "AssertionError: 111 != 23"
+    }
+  ],
+  "errors": [],
+  "note": "Current API/GUI snapshot tested without hardware. Failed assertions are preserved, not changed to make this archival release green.",
+  "javascript_pulse_series_tests": {
+    "passed": 14,
+    "failed": 0
+  },
+  "archive_reproduction": "passed",
+  "bitstream_structure_and_baseline_artifact_checks": "passed"
+}
