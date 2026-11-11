@@ -1,0 +1,19 @@
+# Hardware-run data and evidence are deliberately excluded from this backup.
+data/
+outputs/
+**/runs/
+**/evidence/
+**/__pycache__/
+*.log
+*.jou
+*.jsonl
+*.csv
+!controller/fmc_mapping.csv
+*.xlsx
+*.parquet
+*.npy
+*.npz
+checkpoint.json
+summary.json
+manifest.json
+control.json
